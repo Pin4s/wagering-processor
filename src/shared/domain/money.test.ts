@@ -38,9 +38,18 @@ describe('Money', () => {
     expect(a.toJSON().amount).toBe('10.00');
   });
 
-  test('sum money with different currency throws domain error', () => {
+  test('add money with different currency throws domain error', () => {
     const usd = Money.from({ amount: '1.00', currency: 'USD' });
     expect(() => brl('1.00').add(usd)).toThrow(CurrencyMismatchError);
+  });
+
+  test('subtract correctly money with same currency', () => {
+    expect(brl('10.00').subtract(brl('3.50')).toJSON().amount).toBe('6.50');
+  });
+
+  test('subtract money with different currency throws domain error', () => {
+    const usd = Money.from({ amount: '1.00', currency: 'USD' });
+    expect(() => brl('1.00').subtract(usd)).toThrow(CurrencyMismatchError);
   });
 
 });

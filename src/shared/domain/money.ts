@@ -45,6 +45,11 @@ export class Money {
     return new Money(this.cents + other.cents, this.currency);
   }
 
+  subtract(other: Money): Money {
+    this.assertSameCurrency(other);
+    return new Money(this.cents - other.cents, this.currency);
+  }
+
   toJSON(): MoneyProps {
     return {
       amount: formatCents(this.cents),
