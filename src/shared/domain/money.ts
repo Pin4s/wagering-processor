@@ -3,6 +3,14 @@ export interface MoneyProps {
   currency: string;
 }
 
+export class InvalidMoneyError extends Error { }
+
+export class CurrencyMismatchError extends Error { }
+
+const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
+
+
 function parseCents(amount: string): bigint {
   const [integer, fraction = ''] = amount.split('.');
   return BigInt(integer + fraction.padEnd(2, '0'));
@@ -13,10 +21,6 @@ function formatCents(cents: bigint): string {
   return `${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
 
-export class InvalidMoneyError extends Error { }
-
-const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
-const CURRENCY_RE = /^[A-Z]{3}$/;
 
 export class Money {
   private constructor(
@@ -36,10 +40,21 @@ export class Money {
     return new Money(parseCents(props.amount), props.currency);
   }
 
+  add(other: Money): Money {
+    this.assertSameCurrency(other);
+    return new Money(this.cents + other.cents, this.currency);
+  }
+
   toJSON(): MoneyProps {
     return {
       amount: formatCents(this.cents),
       currency: this.currency
     };
+  }
+
+  private assertSameCurrency(other: Money): void {
+    if (this.currency !== other.currency) {
+      throw new CurrencyMismatchError(`${this.currency} vs ${other.currency}`);
+    }
   }
 }
