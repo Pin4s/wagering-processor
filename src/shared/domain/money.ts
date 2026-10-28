@@ -51,6 +51,18 @@ export class Money {
     return new Money(this.cents - other.cents, this.currency);
   }
 
+  isZero(): boolean {
+    return this.cents === 0n;
+  }
+
+  isPositive(): boolean {
+    return this.cents > 0n;
+  }
+
+  isNegative(): boolean {
+    return this.cents < 0n;
+  }
+
   toJSON(): MoneyProps {
     return {
       amount: formatCents(this.cents),

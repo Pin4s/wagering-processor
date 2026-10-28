@@ -57,4 +57,11 @@ describe('Money', () => {
     expect(brl('0.05').subtract(brl('0.10')).toJSON().amount).toBe('-0.05');
   });
 
+  test('check zero, positive, and negative values', () => {
+    expect(brl('0.00').isZero()).toBe(true);
+    expect(brl('1.00').isPositive()).toBe(true);
+    expect(brl('1.00').isNegative()).toBe(false);
+    expect(brl('1.00').subtract(brl('2.00')).isNegative()).toBe(true);
+  });
+
 });
