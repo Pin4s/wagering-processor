@@ -5,6 +5,8 @@ export enum LedgerDirection {
     Credit = 'CREDIT',
 }
 
+export class InvalidLedgerEntryError extends Error { }
+
 export interface LedgerEntryState {
     id: string;
     walletId: string;
@@ -27,6 +29,17 @@ export class WalletLedgerEntry {
         public readonly balanceAfter: Money,
         public readonly createdAt: Date,
     ) { }
+
+    static create(state: LedgerEntryState): WalletLedgerEntry {
+        if (!state.money.isPositive()) {
+            throw new InvalidLedgerEntryError('ledger amount must be positive');
+        }
+        const entry = WalletLedgerEntry.rehydrate(state);
+        if (!entry.isBalanced()) {
+            throw new InvalidLedgerEntryError('balanceBefore +/- money does not equal balanceAfter');
+        }
+        return entry;
+    }
 
     static rehydrate(state: LedgerEntryState): WalletLedgerEntry {
         return new WalletLedgerEntry(
