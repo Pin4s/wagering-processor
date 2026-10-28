@@ -52,4 +52,9 @@ describe('Money', () => {
     expect(() => brl('1.00').subtract(usd)).toThrow(CurrencyMismatchError);
   });
 
+  test('subtract with negative results', () => {
+    expect(brl('10.00').subtract(brl('25.00')).toJSON().amount).toBe('-15.00');
+    expect(brl('0.05').subtract(brl('0.10')).toJSON().amount).toBe('-0.05');
+  });
+
 });

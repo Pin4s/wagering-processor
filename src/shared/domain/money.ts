@@ -17,8 +17,9 @@ function parseCents(amount: string): bigint {
 }
 
 function formatCents(cents: bigint): string {
-  const digits = cents.toString().padStart(3, '0');
-  return `${digits.slice(0, -2)}.${digits.slice(-2)}`;
+  const negative = cents < 0n;
+  const digits = (negative ? -cents : cents).toString().padStart(3, '0');
+  return `${negative ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
 
 
