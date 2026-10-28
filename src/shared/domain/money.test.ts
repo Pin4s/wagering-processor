@@ -64,4 +64,24 @@ describe('Money', () => {
     expect(brl('1.00').subtract(brl('2.00')).isNegative()).toBe(true);
   });
 
+  test('isLessThan compare if values are less than other and requires same currency', () => {
+    expect(brl('1.00').isLessThan(brl('2.00'))).toBe(true);
+    expect(brl('2.00').isLessThan(brl('1.00'))).toBe(false);
+    const usd = Money.from({ amount: '1.00', currency: 'USD' });
+    expect(() => brl('1.00').isLessThan(usd)).toThrow(CurrencyMismatchError);
+  });
+
+  test('equals compare if value and currency are equal', () => {
+    expect(brl('2.00').equals(brl('2'))).toBe(true);
+    expect(brl('2.00').equals(brl('2.01'))).toBe(false);
+    const usd = Money.from({ amount: '2.00', currency: 'USD' });
+    expect(brl('2.00').equals(usd)).toBe(false);
+  });
+
+  test('negate inverts the sign without altering the original', () => {
+    const a = brl('15.00');
+    expect(a.negate().toJSON().amount).toBe('-15.00');
+    expect(a.toJSON().amount).toBe('15.00');
+  });
+
 });

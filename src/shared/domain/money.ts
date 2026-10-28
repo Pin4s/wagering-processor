@@ -63,6 +63,19 @@ export class Money {
     return this.cents < 0n;
   }
 
+  negate(): Money {
+    return new Money(-this.cents, this.currency);
+  }
+
+  isLessThan(other: Money): boolean {
+    this.assertSameCurrency(other);
+    return this.cents < other.cents;
+  }
+
+  equals(other: Money): boolean {
+    return this.currency === other.currency && this.cents === other.cents;
+  }
+
   toJSON(): MoneyProps {
     return {
       amount: formatCents(this.cents),
