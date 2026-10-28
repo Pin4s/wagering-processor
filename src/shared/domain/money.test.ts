@@ -21,4 +21,11 @@ describe('Money', () => {
     expect(() => Money.from({ amount: 25 as unknown as string, currency: 'BRL' }))
     .toThrow(InvalidMoneyError);
   });
+
+    test('reject invalid currency', () => {
+    for (const bad of ['brl', 'BR', 'REAIS', '', 'B1L']) {
+      expect(() => Money.from({ amount: '1.00', currency: bad })).toThrow(InvalidMoneyError);
+    }
+  });
+
 });

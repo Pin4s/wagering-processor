@@ -16,6 +16,7 @@ function formatCents(cents: bigint): string {
 export class InvalidMoneyError extends Error { }
 
 const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
 
 export class Money {
   private constructor(
@@ -26,6 +27,10 @@ export class Money {
   static from(props: MoneyProps): Money {
     if (typeof props.amount !== 'string' || !AMOUNT_RE.test(props.amount)) {
       throw new InvalidMoneyError('invalid amount format');
+    }
+
+    if (typeof props.currency !== 'string' || !CURRENCY_RE.test(props.currency)) {
+      throw new InvalidMoneyError('invalid currency format');
     }
 
     return new Money(parseCents(props.amount), props.currency);
