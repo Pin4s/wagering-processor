@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { LockMode } from '@mikro-orm/core';
 import { MikroORM } from '@mikro-orm/postgresql';
 import config from '../../src/mikro-orm.config';
 import { newId } from '../../src/shared/new-id';
@@ -12,7 +13,7 @@ import {
   IdempotencyConflictError,
   ProcessWagerTransactionInput,
   ProcessWagerTransactionUseCase,
-} from '../../src/modules/wallet/application/process-wager-transaction.use-case';
+} from '../../src/modules/wagering/application/process-wager-transaction.use-case';
 import { balanceFromLedger, truncateAll } from './helpers';
 
 let orm: MikroORM;
@@ -36,6 +37,12 @@ beforeEach(async () => {
 
 async function openWallet(amount: string) {
   return createWallet.execute({ playerId: newId(), initialBalance: { amount, currency: 'BRL' } });
+}
+
+async function warmUpConnections(count: number): Promise<void> {
+  await Promise.all(
+    Array.from({ length: count }, () => orm.em.getConnection().execute('select pg_sleep(0.05)')),
+  );
 }
 
 function bet(walletId: string, playerId: string, externalTransactionId: string, amount: string): ProcessWagerTransactionInput {
@@ -105,6 +112,7 @@ test('same Idempotency-Key with a different payload is a conflict, not a replay'
 
 test('README scenario: balance 100, two bets of 80 in parallel -> one PROCESSED, one REJECTED', async () => {
   const wallet = await openWallet('100.00');
+  await warmUpConnections(10);
 
   const results = await Promise.all([
     process.execute(bet(wallet.id, wallet.playerId, 'tx-a', '80.00')),
@@ -120,6 +128,58 @@ test('README scenario: balance 100, two bets of 80 in parallel -> one PROCESSED,
   });
   expect(debits).toBe(1);
   expect(await assertWalletMatchesLedger(wallet.id)).toBe(2000n);
+});
+
+test('10 bets of 80 in parallel on balance 100 -> exactly one PROCESSED', async () => {
+  const wallet = await openWallet('100.00');
+  await warmUpConnections(10);
+
+  const results = await Promise.all(
+    Array.from({ length: 10 }, (_, index) =>
+      process.execute(bet(wallet.id, wallet.playerId, `tx-${index}`, '80.00')),
+    ),
+  );
+
+  expect(results.filter((result) => result.status === WagerTransactionStatus.Processed)).toHaveLength(1);
+  expect(results.filter((result) => result.status === WagerTransactionStatus.Rejected)).toHaveLength(9);
+  expect(await assertWalletMatchesLedger(wallet.id)).toBe(2000n);
+});
+
+test('the wallet lock makes a concurrent operation wait and see the latest balance', async () => {
+  const wallet = await openWallet('100.00');
+  await warmUpConnections(10);
+
+  const em = orm.em.fork();
+  await em.begin();
+
+  try {
+    const lockedWallet = await em.findOneOrFail(WalletEntity, { id: wallet.id }, {
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+    });
+
+    let finished = false;
+    const pendingBet = process.execute(bet(wallet.id, wallet.playerId, 'tx-waiting', '80.00')).then((result) => {
+      finished = true;
+      return result;
+    });
+
+    await Bun.sleep(300);
+    const finishedWhileLocked = finished;
+
+    lockedWallet.balanceCents = 0n;
+    await em.commit();
+
+    const result = await pendingBet;
+
+    expect(finishedWhileLocked).toBe(false);
+    expect(result.status).toBe(WagerTransactionStatus.Rejected);
+    expect(result.failureCode).toBe(FailureCode.InsufficientFunds);
+    expect(result.balance.amount).toBe('0.00');
+  } finally {
+    if (em.isInTransaction()) {
+      await em.rollback();
+    }
+  }
 });
 
 test('the same BET sent 50 times in parallel debits only once', async () => {
