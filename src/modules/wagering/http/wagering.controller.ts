@@ -11,6 +11,7 @@ import {
   Headers,
   HttpException,
   Inject,
+  Logger,
   NotFoundException,
   Post,
   Res,
@@ -19,6 +20,7 @@ import {
 } from '@nestjs/common';
 import { InvalidMoneyError } from '../../../shared/domain/money';
 import { isUuid } from '../../../shared/is-uuid';
+import { newId } from '../../../shared/new-id';
 import {
   IdempotencyConflictError,
   ProcessWagerTransactionInput,
@@ -42,10 +44,13 @@ interface SubmitTransactionBody {
 
 interface HttpResponse {
   status(code: number): unknown;
+  setHeader(name: string, value: string): unknown;
 }
 
 @Controller('wagering/transactions')
 export class WageringController {
+  private readonly logger = new Logger(WageringController.name);
+
   constructor(
     @Inject(ProcessWagerTransactionUseCase) private readonly processTransaction: ProcessWagerTransactionUseCase,
   ) { }
@@ -55,11 +60,18 @@ export class WageringController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: SubmitTransactionBody,
     @Res({ passthrough: true }) response: HttpResponse,
+    @Headers('x-correlation-id') correlationHeader: string | undefined,
   ) {
+    let correlationId = correlationHeader;
+    if (!correlationId) {
+      correlationId = newId();
+    }
+    response.setHeader('X-Correlation-Id', correlationId);
     if (!isNonEmptyString(idempotencyKey)) {
       throw new BadRequestException({ error: 'MISSING_IDEMPOTENCY_KEY', message: 'Idempotency-Key header is required' });
     }
     const input = parseSubmitBody(idempotencyKey, body);
+    input.correlationId = correlationId;
 
     try {
       const result = await this.processTransaction.execute(input);
@@ -74,7 +86,15 @@ export class WageringController {
       }
       return result;
     } catch (error) {
-      throw toHttpError(error);
+      const httpError = toHttpError(error);
+      if (httpError instanceof HttpException && httpError.getStatus() === 503) {
+        let errorName = 'UnknownError';
+        if (error instanceof Error) {
+          errorName = error.constructor.name;
+        }
+        this.logger.error({ message: 'wager transaction temporarily unavailable', correlationId, errorName });
+      }
+      throw httpError;
     }
   }
 }

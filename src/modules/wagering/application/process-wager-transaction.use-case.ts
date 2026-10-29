@@ -1,5 +1,5 @@
 import { EntityManager, LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Money, MoneyProps } from '../../../shared/domain/money';
 import { newId } from '../../../shared/new-id';
 import { FailureCode } from '../../wagering/domain/failure-code';
@@ -23,6 +23,7 @@ export class WalletMismatchError extends Error { }
 export class IdempotencyConflictError extends Error { }
 
 export interface ProcessWagerTransactionInput {
+    correlationId?: string;
     idempotencyKey: string;
     providerId: string;
     externalTransactionId: string;
@@ -45,6 +46,8 @@ export interface ProcessWagerTransactionResult {
 
 @Injectable()
 export class ProcessWagerTransactionUseCase {
+    private readonly logger = new Logger(ProcessWagerTransactionUseCase.name);
+
     constructor(@Inject(EntityManager) private readonly em: EntityManager) { }
 
     async execute(input: ProcessWagerTransactionInput): Promise<ProcessWagerTransactionResult> {
@@ -66,12 +69,37 @@ export class ProcessWagerTransactionUseCase {
         });
 
         try {
-            return await this.em.transactional(async (em) => {
-                return this.processWithWalletLocked(em, input, money, payloadHash);
+            let result: ProcessWagerTransactionResult;
+            try {
+                result = await this.em.transactional(async (em) => {
+                    return this.processWithWalletLocked(em, input, money, payloadHash);
+                });
+            } catch (error) {
+                if (error instanceof UniqueConstraintViolationException) {
+                    result = await this.resolveDuplicate(input.idempotencyKey, payloadHash);
+                } else {
+                    throw error;
+                }
+            }
+            this.logger.log({
+                message: 'wager transaction finished',
+                correlationId: input.correlationId ?? null,
+                transactionId: result.transactionId,
+                walletId: input.walletId,
+                providerId: input.providerId,
+                status: result.status,
+                failureCode: result.failureCode ?? null,
+                idempotentReplay: result.idempotentReplay,
             });
+            return result;
         } catch (error) {
-            if (error instanceof UniqueConstraintViolationException) {
-                return this.resolveDuplicate(input.idempotencyKey, payloadHash);
+            if (error instanceof IdempotencyConflictError) {
+                this.logger.warn({
+                    message: 'wager transaction idempotency conflict',
+                    correlationId: input.correlationId ?? null,
+                    walletId: input.walletId,
+                    providerId: input.providerId,
+                });
             }
             throw error;
         }
