@@ -9,6 +9,9 @@ import {
   WagerTransactionKind,
   WagerTransactionStatus,
 } from './wager-transaction';
+import { LedgerDirection } from '../../wallet/domain/wallet-ledger-entry';
+
+
 const brl = (amount: string) => Money.from({ amount, currency: 'BRL' });
 
 const props = (overrides: Partial<CreateWagerTransactionProps> = {}): CreateWagerTransactionProps => ({
@@ -143,4 +146,45 @@ test('terminal states do not allow any transitions', () => {
       expect(() => next(tx)).toThrow(InvalidTransactionStateError);
     }
   }
+});
+
+test('matchesPayload compares the stored hash with the received hash', () => {
+  const tx = WagerTransaction.create(props({ payloadHash: 'abc' }));
+  expect(tx.matchesPayload('abc')).toBe(true);
+  expect(tx.matchesPayload('xyz')).toBe(false);
+});
+
+test('BET debits; WIN, REFUND and OPENING credit', () => {
+  const dir = (kind: WagerTransactionKind) =>
+    WagerTransaction.create(props({ kind, referenceExternalTransactionId: 'ext-0' })).ledgerDirectionFor();
+
+  expect(dir(WagerTransactionKind.Bet)).toBe(LedgerDirection.Debit);
+  expect(dir(WagerTransactionKind.Win)).toBe(LedgerDirection.Credit);
+  expect(dir(WagerTransactionKind.Refund)).toBe(LedgerDirection.Credit);
+  expect(dir(WagerTransactionKind.Opening)).toBe(LedgerDirection.Credit);
+});
+
+test('ROLLBACK reverses the ledger direction of the referenced transaction', () => {
+  const rollback = WagerTransaction.create(
+    props({ kind: WagerTransactionKind.Rollback, referenceExternalTransactionId: 'ext-0' }),
+  );
+  const bet = WagerTransaction.create(props({ kind: WagerTransactionKind.Bet }));
+  const win = WagerTransaction.create(props({ kind: WagerTransactionKind.Win }));
+  const refund = WagerTransaction.create(
+    props({ kind: WagerTransactionKind.Refund, referenceExternalTransactionId: 'ext-0' }),
+  );
+
+  expect(rollback.ledgerDirectionFor(bet)).toBe(LedgerDirection.Credit);
+  expect(rollback.ledgerDirectionFor(win)).toBe(LedgerDirection.Debit);
+  expect(rollback.ledgerDirectionFor(refund)).toBe(LedgerDirection.Debit);
+});
+
+test('ROLLBACK without a reference and LOSS have no ledger direction', () => {
+  const rollback = WagerTransaction.create(
+    props({ kind: WagerTransactionKind.Rollback, referenceExternalTransactionId: 'ext-0' }),
+  );
+  const loss = WagerTransaction.create(props({ kind: WagerTransactionKind.Loss }));
+
+  expect(() => rollback.ledgerDirectionFor()).toThrow(InvalidWagerTransactionError);
+  expect(() => loss.ledgerDirectionFor()).toThrow(InvalidWagerTransactionError);
 });

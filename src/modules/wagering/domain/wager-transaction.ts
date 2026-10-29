@@ -1,5 +1,7 @@
 import { Money } from '../../../shared/domain/money';
 import { FailureCode } from './failure-code';
+import { LedgerDirection } from '../../wallet/domain/wallet-ledger-entry';
+
 
 export enum WagerTransactionKind {
   Opening = 'OPENING', 
@@ -176,6 +178,31 @@ export class WagerTransaction {
 
   requiresReference(): boolean {
     return KINDS_THAT_REQUIRE_REFERENCE.includes(this.kind);
+  }
+
+  matchesPayload(payloadHash: string): boolean {
+    return this.payloadHash === payloadHash;
+  }
+
+  ledgerDirectionFor(reference?: WagerTransaction): LedgerDirection {
+    switch (this.kind) {
+      case WagerTransactionKind.Bet:
+        return LedgerDirection.Debit;
+      case WagerTransactionKind.Win:
+      case WagerTransactionKind.Refund:
+      case WagerTransactionKind.Opening:
+        return LedgerDirection.Credit;
+      case WagerTransactionKind.Rollback: {
+        if (!reference) {
+          throw new InvalidWagerTransactionError('ROLLBACK needs the referenced transaction');
+        }
+        return reference.ledgerDirectionFor() === LedgerDirection.Debit
+          ? LedgerDirection.Credit
+          : LedgerDirection.Debit;
+      }
+      case WagerTransactionKind.Loss:
+        throw new InvalidWagerTransactionError('LOSS does not move balance');
+    }
   }
 
   private assertNotTerminal(): void {
