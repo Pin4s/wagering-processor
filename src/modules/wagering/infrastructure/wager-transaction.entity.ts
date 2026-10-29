@@ -7,8 +7,8 @@ import { WagerTransactionKind, WagerTransactionStatus } from '../domain/wager-tr
 @Unique({ name: 'wager_transactions_idempotency_key_uq', properties: ['idempotencyKey'] })
 @Unique({ name: 'wager_transactions_provider_external_uq', properties: ['providerId', 'externalTransactionId'] })
 @Index({
-    name: 'wager_transactions_one_reversal_uq',
-    expression: `create unique index "wager_transactions_one_reversal_uq" on "wager_transactions" ("reference_transaction_id", "kind") where kind in ('REFUND', 'ROLLBACK')`,
+    name: 'wager_transactions_one_reversal_per_reference_uq',
+    expression: `create unique index "wager_transactions_one_reversal_per_reference_uq" on "wager_transactions" ("reference_transaction_id") where kind in ('REFUND', 'ROLLBACK')`,
 })
 @Check({ name: 'wager_transactions_amount_non_negative', expression: 'amount_cents >= 0' })
 export class WagerTransactionEntity {

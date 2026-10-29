@@ -370,12 +370,11 @@
         },
         {
           "columnNames": [
-            "reference_transaction_id",
-            "kind"
+            "reference_transaction_id"
           ],
-          "composite": true,
+          "composite": false,
           "constraint": false,
-          "keyName": "wager_transactions_one_reversal_uq",
+          "keyName": "wager_transactions_one_reversal_per_reference_uq",
           "primary": false,
           "unique": true,
           "where": "kind = ANY (ARRAY['REFUND'::text, 'ROLLBACK'::text])"
