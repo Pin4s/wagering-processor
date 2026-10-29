@@ -91,17 +91,16 @@ export class ProcessWagerTransactionUseCase {
         if (!walletEntity) {
             throw new WalletNotFoundError('wallet not found');
         }
-
+        const wallet = toWalletDomain(walletEntity);
         const existing = await em.findOne(WagerTransactionEntity, { idempotencyKey: input.idempotencyKey });
+
         if (existing) {
-            return replay(toWagerTransactionDomain(existing), payloadHash);
+            return replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance);
         }
 
-        const wallet = toWalletDomain(walletEntity);
         if (input.playerId !== wallet.playerId || money.currency !== wallet.currency) {
             throw new WalletMismatchError('player or currency does not match the wallet');
         }
-
         const transaction = WagerTransaction.create({
             id: newId(),
             providerId: input.providerId,
@@ -135,13 +134,16 @@ export class ProcessWagerTransactionUseCase {
         em.persist(toNewWagerTransactionEntity(transaction));
         updateWalletEntity(walletEntity, wallet);
 
-        return toResult(transaction, false);
+        return toResult(transaction, false, wallet.balance);
     }
 
     private async resolveDuplicate(idempotencyKey: string, payloadHash: string): Promise<ProcessWagerTransactionResult> {
-        const existing = await this.em.fork().findOne(WagerTransactionEntity, { idempotencyKey });
+        const em = this.em.fork();
+        const existing = await em.findOne(WagerTransactionEntity, { idempotencyKey });
         if (existing) {
-            return replay(toWagerTransactionDomain(existing), payloadHash);
+            const walletEntity = await em.findOneOrFail(WalletEntity, { id: existing.walletId });
+            const currentBalance = Money.fromCents(walletEntity.balanceCents, walletEntity.currency);
+            return replay(toWagerTransactionDomain(existing), payloadHash, currentBalance);
         }
         throw new IdempotencyConflictError('externalTransactionId already used with a different Idempotency-Key');
     }
@@ -182,9 +184,15 @@ async function applyReversal(em: EntityManager, wallet: Wallet, transaction: Wag
         externalTransactionId: referenceExternalTransactionId,
     });
     if (!referenceEntity) {
-        throw new Error('missing reference is not supported yet');  
+        transaction.markPendingReference();
+        return;
     }
     const reference = toWagerTransactionDomain(referenceEntity);
+
+    if (reference.status === WagerTransactionStatus.PendingReference) {
+        transaction.markPendingReference();
+        return;
+    }
 
     const problem = await findReversalProblem(em, transaction, reference);
     if (problem) {
@@ -260,17 +268,24 @@ function isAllowedReferenceKind(kind: WagerTransactionKind, referenceKind: Wager
     return false;
 }
 
-function replay(existing: WagerTransaction, payloadHash: string): ProcessWagerTransactionResult {
+function replay(
+    existing: WagerTransaction,
+    payloadHash: string,
+    currentBalance: Money,
+): ProcessWagerTransactionResult {
     if (!existing.matchesPayload(payloadHash)) {
         throw new IdempotencyConflictError('same Idempotency-Key with a different payload');
     }
-    return toResult(existing, true);
+    return toResult(existing, true, currentBalance);
 }
-
-function toResult(transaction: WagerTransaction, idempotentReplay: boolean): ProcessWagerTransactionResult {
-    const balance = transaction.observedBalance;
+function toResult(
+    transaction: WagerTransaction,
+    idempotentReplay: boolean,
+    currentBalance: Money,
+): ProcessWagerTransactionResult {
+    let balance = transaction.observedBalance;
     if (!balance) {
-        throw new Error('finished transaction must have an observed balance');
+        balance = currentBalance;
     }
     return {
         transactionId: transaction.id,

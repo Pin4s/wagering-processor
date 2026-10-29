@@ -186,7 +186,7 @@ test('reference from another round is a mismatch (rule 2)', async () => {
 
 test('a REJECTED reference cannot be reversed', async () => {
     const wallet = await openWallet('10.00');
-    await process.execute(request(wallet, 'bet-1', WagerTransactionKind.Bet, '25.00'));  
+    await process.execute(request(wallet, 'bet-1', WagerTransactionKind.Bet, '25.00'));
 
     const refund = await process.execute(request(wallet, 'refund-1', WagerTransactionKind.Refund, '25.00', 'bet-1'));
 
@@ -197,8 +197,8 @@ test('a REJECTED reference cannot be reversed', async () => {
 
 test('reversal that would make the balance negative is rejected with its own code (rule 9)', async () => {
     const wallet = await openWallet('100.00');
-    await process.execute(request(wallet, 'win-1', WagerTransactionKind.Win, '50.00'));  
-    await process.execute(request(wallet, 'bet-1', WagerTransactionKind.Bet, '140.00'));  
+    await process.execute(request(wallet, 'win-1', WagerTransactionKind.Win, '50.00'));
+    await process.execute(request(wallet, 'bet-1', WagerTransactionKind.Bet, '140.00'));
 
     const rollback = await process.execute(request(wallet, 'rb-1', WagerTransactionKind.Rollback, '50.00', 'win-1'));
 
@@ -221,5 +221,44 @@ test('two REFUNDs of the same BET in parallel -> exactly one applied', async () 
 
     const applied = results.filter((r) => r.status === WagerTransactionStatus.Processed);
     expect(applied).toHaveLength(1);
+    expect(await assertWalletMatchesLedger(wallet.id)).toBe(10000n);
+});
+
+test('REFUND that arrives before its BET is stored as PENDING_REFERENCE (rule 8)', async () => {
+    const wallet = await openWallet('100.00');
+
+    const refund = await process.execute(request(wallet, 'refund-1', WagerTransactionKind.Refund, '20.00', 'bet-late'));
+
+    expect(refund.status).toBe(WagerTransactionStatus.PendingReference);
+    expect(refund.balance.amount).toBe('100.00');
+
+    const em = orm.em.fork();
+    const stored = await em.findOneOrFail(WagerTransactionEntity, refund.transactionId);
+    expect(stored.status).toBe(WagerTransactionStatus.PendingReference);
+    expect(await em.count(WalletLedgerEntryEntity, { transactionId: refund.transactionId })).toBe(0);
+    expect(await assertWalletMatchesLedger(wallet.id)).toBe(10000n);
+});
+
+test('replay of a pending reversal returns PENDING_REFERENCE with the current balance', async () => {
+    const wallet = await openWallet('100.00');
+    const pending = request(wallet, 'refund-1', WagerTransactionKind.Refund, '20.00', 'bet-late');
+
+    const first = await process.execute(pending);
+    await process.execute(request(wallet, 'bet-other', WagerTransactionKind.Bet, '30.00'));  
+    const replay = await process.execute(pending);
+
+    expect(replay.idempotentReplay).toBe(true);
+    expect(replay.transactionId).toBe(first.transactionId);
+    expect(replay.status).toBe(WagerTransactionStatus.PendingReference);
+    expect(replay.balance.amount).toBe('70.00');
+});
+
+test('ROLLBACK of a pending REFUND also waits as PENDING_REFERENCE', async () => {
+    const wallet = await openWallet('100.00');
+    await process.execute(request(wallet, 'refund-1', WagerTransactionKind.Refund, '20.00', 'bet-late'));
+
+    const rollback = await process.execute(request(wallet, 'rb-1', WagerTransactionKind.Rollback, '20.00', 'refund-1'));
+
+    expect(rollback.status).toBe(WagerTransactionStatus.PendingReference);
     expect(await assertWalletMatchesLedger(wallet.id)).toBe(10000n);
 });
