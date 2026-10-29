@@ -94,4 +94,9 @@ describe('Money', () => {
     expect(() => Money.fromCents(100n, 'brl')).toThrow(InvalidMoneyError);
   });
 
+  test('zero creates a zero amount in the given currency', () => {
+    expect(Money.zero('BRL').toJSON()).toEqual({ amount: '0.00', currency: 'BRL' });
+    expect(() => Money.zero('brl')).toThrow(InvalidMoneyError);
+  });
+
 });

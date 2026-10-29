@@ -25,12 +25,18 @@ export class Wallet {
         private _updatedAt: Date,
     ) { }
 
-    static open(props: { id: string; playerId: string; initialBalance: Money; }): Wallet {
+    static open(props: {
+        id: string;
+        playerId: string;
+        initialBalance: Money;
+        openingTransactionId: string;
+        openingEntryId: string;
+    }): { wallet: Wallet; openingEntry: WalletLedgerEntry | undefined } {
         if (props.initialBalance.isNegative()) {
             throw new InvalidWalletError('initial balance cannot be negative');
         }
         const now = new Date();
-        return new Wallet(
+        const wallet = new Wallet(
             props.id,
             props.playerId,
             props.initialBalance.currency,
@@ -39,6 +45,22 @@ export class Wallet {
             now,
             now,
         );
+
+        let openingEntry: WalletLedgerEntry | undefined = undefined;
+        if (props.initialBalance.isPositive()) {
+            openingEntry = WalletLedgerEntry.create({
+                id: props.openingEntryId,
+                walletId: props.id,
+                transactionId: props.openingTransactionId,
+                direction: LedgerDirection.Credit,
+                money: props.initialBalance,
+                balanceBefore: Money.zero(props.initialBalance.currency),
+                balanceAfter: props.initialBalance,
+                createdAt: now,
+            });
+        }
+
+        return { wallet, openingEntry };
     }
 
     static rehydrate(state: WalletState): Wallet {

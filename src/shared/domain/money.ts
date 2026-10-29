@@ -59,6 +59,10 @@ export class Money {
     return new Money(cents, currency);
   }
 
+  static zero(currency: string): Money {
+    return Money.fromCents(0n, currency);
+  }
+
   toCents(): bigint {
     return this.cents;
   }

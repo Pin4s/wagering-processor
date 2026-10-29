@@ -6,7 +6,10 @@ import { toNewWalletEntity, toWalletDomain, updateWalletEntity } from './wallet.
 const brl = (amount: string) => Money.from({ amount, currency: 'BRL' });
 
 test('wallet survives a round trip domain -> entity -> domain', () => {
-  const wallet = Wallet.open({ id: 'w1', playerId: 'p1', initialBalance: brl('100.00') });
+  const wallet = Wallet.open({
+    id: 'w1', playerId: 'p1', initialBalance: brl('100.00'),
+    openingTransactionId: 'tx-open', openingEntryId: 'e-open',
+  }).wallet;
   wallet.debit({ entryId: 'e1', transactionId: 't1', money: brl('25.50') });
 
   const entity = toNewWalletEntity(wallet);
@@ -20,7 +23,10 @@ test('wallet survives a round trip domain -> entity -> domain', () => {
 });
 
 test('updateWalletEntity changes balance, version and updatedAt on the same entity', () => {
-  const wallet = Wallet.open({ id: 'w1', playerId: 'p1', initialBalance: brl('100.00') });
+  const wallet = Wallet.open({
+    id: 'w1', playerId: 'p1', initialBalance: brl('100.00'),
+    openingTransactionId: 'tx-open', openingEntryId: 'e-open',
+  }).wallet;
   const entity = toNewWalletEntity(wallet);
 
   wallet.credit({ entryId: 'e1', transactionId: 't1', money: brl('10.00') });
