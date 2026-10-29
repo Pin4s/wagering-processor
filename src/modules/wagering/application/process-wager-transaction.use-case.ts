@@ -2,6 +2,15 @@ import { EntityManager, LockMode, UniqueConstraintViolationException } from '@mi
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Money, MoneyProps } from '../../../shared/domain/money';
 import { newId } from '../../../shared/new-id';
+import { EventContext, IntegrationEvent } from '../../messaging/domain/integration-event';
+import { OutboxMessage } from '../../messaging/domain/outbox-message';
+import {
+    WagerTransactionPendingReference,
+    WagerTransactionProcessed,
+    WagerTransactionRejected,
+    WalletBalanceChanged,
+} from '../../messaging/domain/wagering-events';
+import { toNewOutboxMessageEntity } from '../../messaging/infrastructure/outbox-message.mapper';
 import { FailureCode } from '../../wagering/domain/failure-code';
 import { computePayloadHash } from '../../wagering/domain/payload-hash';
 import {
@@ -16,7 +25,7 @@ import { InsufficientBalanceError, Wallet } from '../../wallet/domain/wallet';
 import { toLedgerEntryEntity } from '../../wallet/infrastructure/wallet-ledger-entry.mapper';
 import { WalletEntity } from '../../wallet/infrastructure/wallet.entity';
 import { toWalletDomain, updateWalletEntity } from '../../wallet/infrastructure/wallet.mapper';
-import { LedgerDirection } from '../../wallet/domain/wallet-ledger-entry';
+import { LedgerDirection, WalletLedgerEntry } from '../../wallet/domain/wallet-ledger-entry';
 
 export class WalletNotFoundError extends Error { }
 export class WalletMismatchError extends Error { }
@@ -24,6 +33,7 @@ export class IdempotencyConflictError extends Error { }
 
 export interface ProcessWagerTransactionInput {
     correlationId?: string;
+    causationId?: string;
     idempotencyKey: string;
     providerId: string;
     externalTransactionId: string;
@@ -56,6 +66,11 @@ export class ProcessWagerTransactionUseCase {
         }
 
         const money = Money.from(input.money);
+        let correlationId = input.correlationId;
+        if (!correlationId) {
+            correlationId = newId();
+        }
+        const context: EventContext = { correlationId, causationId: input.causationId };
         const payloadHash = computePayloadHash({
             providerId: input.providerId,
             externalTransactionId: input.externalTransactionId,
@@ -72,7 +87,7 @@ export class ProcessWagerTransactionUseCase {
             let result: ProcessWagerTransactionResult;
             try {
                 result = await this.em.transactional(async (em) => {
-                    return this.processWithWalletLocked(em, input, money, payloadHash);
+                    return this.processWithWalletLocked(em, input, money, payloadHash, context);
                 });
             } catch (error) {
                 if (error instanceof UniqueConstraintViolationException) {
@@ -83,7 +98,7 @@ export class ProcessWagerTransactionUseCase {
             }
             this.logger.log({
                 message: 'wager transaction finished',
-                correlationId: input.correlationId ?? null,
+                correlationId: context.correlationId,
                 transactionId: result.transactionId,
                 walletId: input.walletId,
                 providerId: input.providerId,
@@ -96,7 +111,7 @@ export class ProcessWagerTransactionUseCase {
             if (error instanceof IdempotencyConflictError) {
                 this.logger.warn({
                     message: 'wager transaction idempotency conflict',
-                    correlationId: input.correlationId ?? null,
+                    correlationId: context.correlationId,
                     walletId: input.walletId,
                     providerId: input.providerId,
                 });
@@ -110,6 +125,7 @@ export class ProcessWagerTransactionUseCase {
         input: ProcessWagerTransactionInput,
         money: Money,
         payloadHash: string,
+        context: EventContext,
     ): Promise<ProcessWagerTransactionResult> {
         const walletEntity = await em.findOne(
             WalletEntity,
@@ -144,23 +160,28 @@ export class ProcessWagerTransactionUseCase {
             referenceExternalTransactionId: input.referenceExternalTransactionId,
         });
 
+        let entry: WalletLedgerEntry | undefined;
         if (transaction.kind === WagerTransactionKind.Bet) {
-            applyBet(em, wallet, transaction);
+            entry = applyBet(em, wallet, transaction);
         } else if (transaction.kind === WagerTransactionKind.Win) {
-            applyWin(em, wallet, transaction);
+            entry = applyWin(em, wallet, transaction);
         } else if (transaction.kind === WagerTransactionKind.Loss) {
-            applyLoss(wallet, transaction);
+            entry = applyLoss(wallet, transaction);
         } else if (
             transaction.kind === WagerTransactionKind.Refund ||
             transaction.kind === WagerTransactionKind.Rollback
         ) {
-            await applyReversal(em, wallet, transaction);
+            entry = await applyReversal(em, wallet, transaction);
         } else {
             throw new Error(`${transaction.kind} is not supported yet`);
         }
 
         em.persist(toNewWagerTransactionEntity(transaction));
         updateWalletEntity(walletEntity, wallet);
+
+        for (const event of eventsFor(transaction, wallet, entry, context)) {
+            em.persist(toNewOutboxMessageEntity(OutboxMessage.enqueue(event)));
+        }
 
         return toResult(transaction, false, wallet.balance);
     }
@@ -177,11 +198,12 @@ export class ProcessWagerTransactionUseCase {
     }
 }
 
-function applyBet(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): void {
+function applyBet(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): WalletLedgerEntry | undefined {
     try {
         const entry = wallet.debit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
         transaction.markProcessed({ observedBalance: wallet.balance });
         em.persist(toLedgerEntryEntity(entry));
+        return entry;
     } catch (error) {
         if (error instanceof InsufficientBalanceError) {
             transaction.reject({ code: FailureCode.InsufficientFunds, observedBalance: wallet.balance });
@@ -191,17 +213,23 @@ function applyBet(em: EntityManager, wallet: Wallet, transaction: WagerTransacti
     }
 }
 
-function applyWin(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): void {
+function applyWin(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): WalletLedgerEntry {
     const entry = wallet.credit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
     transaction.markProcessed({ observedBalance: wallet.balance });
     em.persist(toLedgerEntryEntity(entry));
+    return entry;
 }
 
-function applyLoss(wallet: Wallet, transaction: WagerTransaction): void {
+function applyLoss(wallet: Wallet, transaction: WagerTransaction): undefined {
     transaction.markProcessed({ observedBalance: wallet.balance });
+    return undefined;
 }
 
-async function applyReversal(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): Promise<void> {
+async function applyReversal(
+    em: EntityManager,
+    wallet: Wallet,
+    transaction: WagerTransaction,
+): Promise<WalletLedgerEntry | undefined> {
     const referenceExternalTransactionId = transaction.referenceExternalTransactionId;
     if (!referenceExternalTransactionId) {
         throw new InvalidWagerTransactionError(`${transaction.kind} requires referenceExternalTransactionId`);
@@ -229,12 +257,13 @@ async function applyReversal(em: EntityManager, wallet: Wallet, transaction: Wag
     }
 
     const direction = transaction.ledgerDirectionFor(reference);
+    let entry: WalletLedgerEntry;
     if (direction === LedgerDirection.Credit) {
-        const entry = wallet.credit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
+        entry = wallet.credit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
         em.persist(toLedgerEntryEntity(entry));
     } else {
         try {
-            const entry = wallet.debit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
+            entry = wallet.debit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
             em.persist(toLedgerEntryEntity(entry));
         } catch (error) {
             if (error instanceof InsufficientBalanceError) {
@@ -246,6 +275,35 @@ async function applyReversal(em: EntityManager, wallet: Wallet, transaction: Wag
     }
 
     transaction.markProcessed({ observedBalance: wallet.balance, referenceTransactionId: reference.id });
+    return entry;
+}
+
+function eventsFor(
+    transaction: WagerTransaction,
+    wallet: Wallet,
+    entry: WalletLedgerEntry | undefined,
+    context: EventContext,
+): IntegrationEvent<unknown>[] {
+    const events: IntegrationEvent<unknown>[] = [];
+    if (transaction.status === WagerTransactionStatus.Processed) {
+        events.push(WagerTransactionProcessed.from(transaction, wallet.balance, context));
+        if (entry) {
+            events.push(WalletBalanceChanged.from(wallet, entry, context));
+        }
+    } else if (transaction.status === WagerTransactionStatus.Rejected) {
+        const failureCode = transaction.failureCode;
+        if (!failureCode) {
+            throw new Error('rejected transaction requires failureCode');
+        }
+        events.push(WagerTransactionRejected.from(transaction, failureCode, wallet.balance, context));
+    } else if (transaction.status === WagerTransactionStatus.PendingReference) {
+        const referenceExternalTransactionId = transaction.referenceExternalTransactionId;
+        if (!referenceExternalTransactionId) {
+            throw new Error('pending reference transaction requires referenceExternalTransactionId');
+        }
+        events.push(WagerTransactionPendingReference.from(transaction, referenceExternalTransactionId, context));
+    }
+    return events;
 }
 
 async function findReversalProblem(

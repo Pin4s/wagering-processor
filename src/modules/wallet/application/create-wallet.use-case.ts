@@ -2,6 +2,10 @@ import { EntityManager, UniqueConstraintViolationException } from '@mikro-orm/co
 import { Inject, Injectable } from '@nestjs/common';
 import { Money, MoneyProps } from '../../../shared/domain/money';
 import { newId } from '../../../shared/new-id';
+import { EventContext } from '../../messaging/domain/integration-event';
+import { OutboxMessage } from '../../messaging/domain/outbox-message';
+import { WagerTransactionProcessed, WalletBalanceChanged } from '../../messaging/domain/wagering-events';
+import { toNewOutboxMessageEntity } from '../../messaging/infrastructure/outbox-message.mapper';
 import { computePayloadHash } from '../../wagering/domain/payload-hash';
 import { WagerTransaction, WagerTransactionKind } from '../../wagering/domain/wager-transaction';
 import { toNewWagerTransactionEntity } from '../../wagering/infrastructure/wager-transaction.mapper';
@@ -12,6 +16,7 @@ import { toNewWalletEntity } from '../infrastructure/wallet.mapper';
 export class WalletAlreadyExistsError extends Error {}
 
 export interface CreateWalletInput {
+  correlationId?: string;
   playerId: string;
   initialBalance: MoneyProps;
 }
@@ -23,6 +28,11 @@ export class CreateWalletUseCase {
   async execute(input: CreateWalletInput): Promise<Wallet> {
     const initialBalance = Money.from(input.initialBalance);  
     const openingTransactionId = newId();
+    let correlationId = input.correlationId;
+    if (!correlationId) {
+      correlationId = newId();
+    }
+    const context: EventContext = { correlationId };
 
     const { wallet, openingEntry } = Wallet.open({
       id: newId(),
@@ -40,6 +50,13 @@ export class CreateWalletUseCase {
           const opening = createOpeningTransaction(wallet, openingTransactionId, initialBalance);
           em.persist(toNewWagerTransactionEntity(opening));
           em.persist(toLedgerEntryEntity(openingEntry));
+          const events = [
+            WagerTransactionProcessed.from(opening, wallet.balance, context),
+            WalletBalanceChanged.from(wallet, openingEntry, context),
+          ];
+          for (const event of events) {
+            em.persist(toNewOutboxMessageEntity(OutboxMessage.enqueue(event)));
+          }
         }
       });
     } catch (error) {

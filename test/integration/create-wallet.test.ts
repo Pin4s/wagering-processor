@@ -9,6 +9,7 @@ import { WalletEntity } from '../../src/modules/wallet/infrastructure/wallet.ent
 import { WalletLedgerEntryEntity } from '../../src/modules/wallet/infrastructure/wallet-ledger-entry.entity';
 import { WagerTransactionKind, WagerTransactionStatus } from '../../src/modules/wagering/domain/wager-transaction';
 import { WagerTransactionEntity } from '../../src/modules/wagering/infrastructure/wager-transaction.entity';
+import { truncateAll } from './helpers';
 
 let orm: MikroORM;
 let useCase: CreateWalletUseCase;
@@ -24,9 +25,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-    await orm.em
-        .getConnection()
-        .execute('truncate table wallet_ledger_entries, wager_transactions, wallets cascade');
+    await truncateAll(orm);
 });
 
 function balanceFromLedger(entries: WalletLedgerEntryEntity[]): bigint {
