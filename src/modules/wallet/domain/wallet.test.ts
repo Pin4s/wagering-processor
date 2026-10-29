@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { CurrencyMismatchError, Money } from '../../../shared/domain/money';
 import { InvalidLedgerEntryError, LedgerDirection } from './wallet-ledger-entry';
-import { InvalidWalletError, Wallet } from './wallet';
+import { InsufficientBalanceError, InvalidWalletError, Wallet } from './wallet';
 
 const brl = (amount: string) => Money.from({ amount, currency: 'BRL' });
 
@@ -67,6 +67,55 @@ test('credit with zero amount fails and does not alter the wallet', () => {
   expect(() => w.credit({ entryId: 'e1', transactionId: 't1', money: brl('0.00') })).toThrow(
     InvalidLedgerEntryError,
   );
+  expect(w.balance.toJSON().amount).toBe('100.00');
+  expect(w.version).toBe(1);
+});
+
+test('debit decrease the balance, increment the version and return the ledger entry', () => {
+  const w = openWallet();
+  const entry = w.debit({ entryId: 'e1', transactionId: 't1', money: brl('80.00') });
+
+  expect(w.balance.toJSON().amount).toBe('20.00');
+  expect(w.version).toBe(2);
+  expect(entry.direction).toBe(LedgerDirection.Debit);
+  expect(entry.balanceBefore.toJSON().amount).toBe('100.00');
+  expect(entry.balanceAfter.toJSON().amount).toBe('20.00');
+  expect(entry.isBalanced()).toBe(true);
+});
+
+test('debit with exact balance is allowed and zeros the wallet', () => {
+  const w = openWallet();
+  w.debit({ entryId: 'e1', transactionId: 't1', money: brl('100.00') });
+  expect(w.balance.isZero()).toBe(true);
+});
+
+test('debit with insufficient balance fails and does not alter the wallet', () => {
+  const w = openWallet();
+
+  expect(() => w.debit({ entryId: 'e1', transactionId: 't1', money: brl('100.01') })).toThrow(
+    InsufficientBalanceError,
+  );
+  expect(w.balance.toJSON().amount).toBe('100.00');
+  expect(w.version).toBe(1);
+});
+
+test('README cenario: balance = 100, two bets of 80 → only one passes', () => {
+  const w = openWallet();
+
+  w.debit({ entryId: 'e1', transactionId: 't1', money: brl('80.00') });
+  expect(() => w.debit({ entryId: 'e2', transactionId: 't2', money: brl('80.00') })).toThrow(
+    InsufficientBalanceError,
+  );
+
+  expect(w.balance.toJSON().amount).toBe('20.00');
+  expect(w.version).toBe(2);
+});
+
+test('debit with different currency fails and does not alter the wallet', () => {
+  const w = openWallet();
+  const usd = Money.from({ amount: '5.00', currency: 'USD' });
+
+  expect(() => w.debit({ entryId: 'e1', transactionId: 't1', money: usd })).toThrow(CurrencyMismatchError);
   expect(w.balance.toJSON().amount).toBe('100.00');
   expect(w.version).toBe(1);
 });
