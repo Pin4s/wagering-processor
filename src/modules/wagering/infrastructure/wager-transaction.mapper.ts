@@ -57,3 +57,29 @@ export function updateWagerTransactionEntity(entity: WagerTransactionEntity, tx:
   entity.processedAt = tx.processedAt;
   entity.observedBalanceCents = tx.observedBalance?.toCents();
 }
+
+export function toWagerTransactionView(entity: WagerTransactionEntity) {
+  let observedBalance = null;
+  if (entity.observedBalanceCents !== undefined && entity.observedBalanceCents !== null) {
+    observedBalance = Money.fromCents(entity.observedBalanceCents, entity.currency).toJSON();
+  }
+
+  return {
+    id: entity.id,
+    providerId: entity.providerId,
+    externalTransactionId: entity.externalTransactionId,
+    walletId: entity.walletId,
+    playerId: entity.playerId,
+    roundId: entity.roundId,
+    gameId: entity.gameId,
+    kind: entity.kind,
+    money: Money.fromCents(entity.amountCents, entity.currency).toJSON(),
+    referenceExternalTransactionId: entity.referenceExternalTransactionId ?? null,
+    referenceTransactionId: entity.referenceTransactionId ?? null,
+    status: entity.status,
+    failureCode: entity.failureCode ?? null,
+    observedBalance,
+    createdAt: entity.createdAt.toISOString(),
+    processedAt: entity.processedAt?.toISOString() ?? null,
+  };
+}

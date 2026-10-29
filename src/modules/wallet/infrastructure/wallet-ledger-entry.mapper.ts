@@ -28,3 +28,15 @@ export function toLedgerEntryEntity(entry: WalletLedgerEntry): WalletLedgerEntry
   entity.createdAt = entry.createdAt;
   return entity;
 }
+
+export function toLedgerEntryView(entity: WalletLedgerEntryEntity) {
+  return {
+    id: entity.id,
+    transactionId: entity.transactionId,
+    direction: entity.direction,
+    money: Money.fromCents(entity.amountCents, entity.currency).toJSON(),
+    balanceBefore: Money.fromCents(entity.balanceBeforeCents, entity.currency).toJSON(),
+    balanceAfter: Money.fromCents(entity.balanceAfterCents, entity.currency).toJSON(),
+    createdAt: entity.createdAt.toISOString(),
+  };
+}

@@ -31,3 +31,12 @@ export function updateWalletEntity(entity: WalletEntity, wallet: Wallet): void {
   entity.version = wallet.version;
   entity.updatedAt = wallet.updatedAt;
 }
+
+export function toWalletView(entity: WalletEntity) {
+  return {
+    id: entity.id,
+    playerId: entity.playerId,
+    balance: Money.fromCents(entity.balanceCents, entity.currency).toJSON(),
+    version: entity.version,
+  };
+}
