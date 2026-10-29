@@ -52,6 +52,17 @@ export class Money {
     return new Money(parseCents(props.amount), props.currency);
   }
 
+  static fromCents(cents: bigint, currency: string): Money {
+    if (typeof currency !== 'string' || !CURRENCY_RE.test(currency)) {
+      throw new InvalidMoneyError('invalid currency format');
+    }
+    return new Money(cents, currency);
+  }
+
+  toCents(): bigint {
+    return this.cents;
+  }
+
   add(other: Money): Money {
     this.assertSameCurrency(other);
     return new Money(this.cents + other.cents, this.currency);

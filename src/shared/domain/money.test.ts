@@ -84,4 +84,14 @@ describe('Money', () => {
     expect(a.toJSON().amount).toBe('15.00');
   });
 
+  test('fromCents e toCents converts to db format', () => {
+    const m = Money.fromCents(2550n, 'BRL');
+    expect(m.toJSON()).toEqual({ amount: '25.50', currency: 'BRL' });
+    expect(brl('25.50').toCents()).toBe(2550n);
+  });
+
+  test('fromCents reject invalid currency', () => {
+    expect(() => Money.fromCents(100n, 'brl')).toThrow(InvalidMoneyError);
+  });
+
 });
