@@ -55,10 +55,12 @@ export class WalletLedgerEntry {
     }
 
     isBalanced(): boolean {
-        const expected =
-            this.direction === LedgerDirection.Debit
-                ? this.balanceBefore.subtract(this.money)
-                : this.balanceBefore.add(this.money);
+        let expected: Money;
+        if (this.direction === LedgerDirection.Debit) {
+            expected = this.balanceBefore.subtract(this.money);
+        } else {
+            expected = this.balanceBefore.add(this.money);
+        }
         return expected.equals(this.balanceAfter);
     }
 }

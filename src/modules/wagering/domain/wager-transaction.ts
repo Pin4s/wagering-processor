@@ -97,7 +97,10 @@ export class WagerTransaction {
 
   static create(props: CreateWagerTransactionProps): WagerTransaction {
     const { now, ...fields } = props;
-    if (fields.money.isNegative() || (fields.kind !== WagerTransactionKind.Loss && fields.money.isZero())) {
+    if (fields.money.isNegative()) {
+      throw new InvalidWagerTransactionError('amount must be positive (zero is only allowed for LOSS)');
+    }
+    if (fields.kind !== WagerTransactionKind.Loss && fields.money.isZero()) {
       throw new InvalidWagerTransactionError('amount must be positive (zero is only allowed for LOSS)');
     }
     if (KINDS_THAT_REQUIRE_REFERENCE.includes(fields.kind) && !fields.referenceExternalTransactionId) {
@@ -196,9 +199,11 @@ export class WagerTransaction {
         if (!reference) {
           throw new InvalidWagerTransactionError('ROLLBACK needs the referenced transaction');
         }
-        return reference.ledgerDirectionFor() === LedgerDirection.Debit
-          ? LedgerDirection.Credit
-          : LedgerDirection.Debit;
+        if (reference.ledgerDirectionFor() === LedgerDirection.Debit) {
+          return LedgerDirection.Credit;
+        } else {
+          return LedgerDirection.Debit;
+        }
       }
       case WagerTransactionKind.Loss:
         throw new InvalidWagerTransactionError('LOSS does not move balance');

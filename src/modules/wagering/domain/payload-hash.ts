@@ -14,21 +14,17 @@ export interface PayloadHashInput {
   referenceExternalTransactionId?: string;
 }
 
-function canonicalize(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalize).join(',')}]`;
-  }
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalize(v)}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 export function computePayloadHash(input: PayloadHashInput): string {
-  const canonical = canonicalize({ ...input, money: input.money.toJSON() });
+  const canonical = JSON.stringify({
+    externalTransactionId: input.externalTransactionId,
+    gameId: input.gameId,
+    kind: input.kind,
+    money: input.money.toJSON(),
+    playerId: input.playerId,
+    providerId: input.providerId,
+    referenceExternalTransactionId: input.referenceExternalTransactionId,
+    roundId: input.roundId,
+    walletId: input.walletId,
+  });
   return createHash('sha256').update(canonical).digest('hex');
 }

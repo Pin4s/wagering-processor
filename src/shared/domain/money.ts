@@ -18,8 +18,19 @@ function parseCents(amount: string): bigint {
 
 function formatCents(cents: bigint): string {
   const negative = cents < 0n;
-  const digits = (negative ? -cents : cents).toString().padStart(3, '0');
-  return `${negative ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+  let sign: string;
+  let absoluteCents: bigint;
+
+  if (negative) {
+    sign = '-';
+    absoluteCents = -cents;
+  } else {
+    sign = '';
+    absoluteCents = cents;
+  }
+
+  const digits = absoluteCents.toString().padStart(3, '0');
+  return `${sign}${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
 
 

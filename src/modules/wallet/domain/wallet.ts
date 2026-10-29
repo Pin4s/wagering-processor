@@ -25,11 +25,11 @@ export class Wallet {
         private _updatedAt: Date,
     ) { }
 
-    static open(props: { id: string; playerId: string; initialBalance: Money; now?: Date }): Wallet {
+    static open(props: { id: string; playerId: string; initialBalance: Money; }): Wallet {
         if (props.initialBalance.isNegative()) {
             throw new InvalidWalletError('initial balance cannot be negative');
         }
-        const now = props.now ?? new Date();
+        const now = new Date();
         return new Wallet(
             props.id,
             props.playerId,
@@ -53,8 +53,8 @@ export class Wallet {
         );
     }
 
-    credit(props: { entryId: string; transactionId: string; money: Money; now?: Date }): WalletLedgerEntry {
-        const now = props.now ?? new Date();
+    credit(props: { entryId: string; transactionId: string; money: Money; }): WalletLedgerEntry {
+        const now = new Date();
         const balanceAfter = this._balance.add(props.money);
         const entry = WalletLedgerEntry.create({
             id: props.entryId,
@@ -72,8 +72,8 @@ export class Wallet {
         return entry;
     }
 
-    debit(props: { entryId: string; transactionId: string; money: Money; now?: Date }): WalletLedgerEntry {
-        const now = props.now ?? new Date();
+    debit(props: { entryId: string; transactionId: string; money: Money; }): WalletLedgerEntry {
+        const now = new Date();
         if (this._balance.isLessThan(props.money)) {
             throw new InsufficientBalanceError('insufficient balance');
         }
