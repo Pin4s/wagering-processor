@@ -16,6 +16,7 @@ import { InsufficientBalanceError, Wallet } from '../../wallet/domain/wallet';
 import { toLedgerEntryEntity } from '../../wallet/infrastructure/wallet-ledger-entry.mapper';
 import { WalletEntity } from '../../wallet/infrastructure/wallet.entity';
 import { toWalletDomain, updateWalletEntity } from '../../wallet/infrastructure/wallet.mapper';
+import { LedgerDirection } from '../../wallet/domain/wallet-ledger-entry';
 
 export class WalletNotFoundError extends Error { }
 export class WalletMismatchError extends Error { }
@@ -122,6 +123,11 @@ export class ProcessWagerTransactionUseCase {
             applyWin(em, wallet, transaction);
         } else if (transaction.kind === WagerTransactionKind.Loss) {
             applyLoss(wallet, transaction);
+        } else if (
+            transaction.kind === WagerTransactionKind.Refund ||
+            transaction.kind === WagerTransactionKind.Rollback
+        ) {
+            await applyReversal(em, wallet, transaction);
         } else {
             throw new Error(`${transaction.kind} is not supported yet`);
         }
@@ -163,6 +169,95 @@ function applyWin(em: EntityManager, wallet: Wallet, transaction: WagerTransacti
 
 function applyLoss(wallet: Wallet, transaction: WagerTransaction): void {
     transaction.markProcessed({ observedBalance: wallet.balance });
+}
+
+async function applyReversal(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): Promise<void> {
+    const referenceExternalTransactionId = transaction.referenceExternalTransactionId;
+    if (!referenceExternalTransactionId) {
+        throw new InvalidWagerTransactionError(`${transaction.kind} requires referenceExternalTransactionId`);
+    }
+
+    const referenceEntity = await em.findOne(WagerTransactionEntity, {
+        providerId: transaction.providerId,
+        externalTransactionId: referenceExternalTransactionId,
+    });
+    if (!referenceEntity) {
+        throw new Error('missing reference is not supported yet');  
+    }
+    const reference = toWagerTransactionDomain(referenceEntity);
+
+    const problem = await findReversalProblem(em, transaction, reference);
+    if (problem) {
+        transaction.reject({ code: problem, observedBalance: wallet.balance });
+        return;
+    }
+
+    const direction = transaction.ledgerDirectionFor(reference);
+    if (direction === LedgerDirection.Credit) {
+        const entry = wallet.credit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
+        em.persist(toLedgerEntryEntity(entry));
+    } else {
+        try {
+            const entry = wallet.debit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
+            em.persist(toLedgerEntryEntity(entry));
+        } catch (error) {
+            if (error instanceof InsufficientBalanceError) {
+                transaction.reject({ code: FailureCode.ReversalInsufficientFunds, observedBalance: wallet.balance });
+                return;
+            }
+            throw error;
+        }
+    }
+
+    transaction.markProcessed({ observedBalance: wallet.balance, referenceTransactionId: reference.id });
+}
+
+async function findReversalProblem(
+    em: EntityManager,
+    transaction: WagerTransaction,
+    reference: WagerTransaction,
+): Promise<FailureCode | undefined> {
+    if (!isAllowedReferenceKind(transaction.kind, reference.kind)) {
+        return FailureCode.InvalidReferenceKind;
+    }
+    if (
+        reference.playerId !== transaction.playerId ||
+        reference.walletId !== transaction.walletId ||
+        reference.money.currency !== transaction.money.currency ||
+        reference.roundId !== transaction.roundId
+    ) {
+        return FailureCode.ReferenceMismatch;
+    }
+    if (reference.status !== WagerTransactionStatus.Processed) {
+        return FailureCode.ReferenceNotProcessed;
+    }
+    if (!reference.money.equals(transaction.money)) {
+        return FailureCode.AmountMismatch;
+    }
+
+    const appliedReversals = await em.count(WagerTransactionEntity, {
+        referenceTransactionId: reference.id,
+        kind: { $in: [WagerTransactionKind.Refund, WagerTransactionKind.Rollback] },
+    });
+    if (appliedReversals > 0) {
+        return FailureCode.AlreadyReversed;
+    }
+
+    return undefined;
+}
+
+function isAllowedReferenceKind(kind: WagerTransactionKind, referenceKind: WagerTransactionKind): boolean {
+    if (kind === WagerTransactionKind.Refund) {
+        return referenceKind === WagerTransactionKind.Bet;
+    }
+    if (kind === WagerTransactionKind.Rollback) {
+        return (
+            referenceKind === WagerTransactionKind.Bet ||
+            referenceKind === WagerTransactionKind.Win ||
+            referenceKind === WagerTransactionKind.Refund
+        );
+    }
+    return false;
 }
 
 function replay(existing: WagerTransaction, payloadHash: string): ProcessWagerTransactionResult {
