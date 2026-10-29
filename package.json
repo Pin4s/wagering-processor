@@ -4,7 +4,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "typecheck": "bun check"
+    "typecheck": "bun check",
+    "migrate:up": "bun run src/migrate.ts up",
+    "migrate:down": "bun run src/migrate.ts down",
+    "migrate:create": "bun run src/migrate.ts create"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -13,8 +16,10 @@
     "typescript": "^7"
   },
   "dependencies": {
+    "@mikro-orm/cli": "^7.2.5",
     "@mikro-orm/core": "^7.2.5",
     "@mikro-orm/decorators": "^7.2.5",
+    "@mikro-orm/migrations": "^7.2.5",
     "@mikro-orm/nestjs": "^7.1.0",
     "@mikro-orm/postgresql": "^7.2.5",
     "@nestjs/common": "^12.3.2",
