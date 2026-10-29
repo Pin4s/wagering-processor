@@ -7,7 +7,9 @@
     "typecheck": "bun check",
     "migrate:up": "bun run src/migrate.ts up",
     "migrate:down": "bun run src/migrate.ts down",
-    "migrate:create": "bun run src/migrate.ts create"
+    "migrate:create": "bun run src/migrate.ts create",
+    "test:unit": "bun test src",
+    "test:int": "bun test test/integration"
   },
   "devDependencies": {
     "@types/bun": "latest"
