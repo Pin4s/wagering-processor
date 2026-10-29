@@ -118,6 +118,10 @@ export class ProcessWagerTransactionUseCase {
 
         if (transaction.kind === WagerTransactionKind.Bet) {
             applyBet(em, wallet, transaction);
+        } else if (transaction.kind === WagerTransactionKind.Win) {
+            applyWin(em, wallet, transaction);
+        } else if (transaction.kind === WagerTransactionKind.Loss) {
+            applyLoss(wallet, transaction);
         } else {
             throw new Error(`${transaction.kind} is not supported yet`);
         }
@@ -149,6 +153,16 @@ function applyBet(em: EntityManager, wallet: Wallet, transaction: WagerTransacti
         }
         throw error;
     }
+}
+
+function applyWin(em: EntityManager, wallet: Wallet, transaction: WagerTransaction): void {
+    const entry = wallet.credit({ entryId: newId(), transactionId: transaction.id, money: transaction.money });
+    transaction.markProcessed({ observedBalance: wallet.balance });
+    em.persist(toLedgerEntryEntity(entry));
+}
+
+function applyLoss(wallet: Wallet, transaction: WagerTransaction): void {
+    transaction.markProcessed({ observedBalance: wallet.balance });
 }
 
 function replay(existing: WagerTransaction, payloadHash: string): ProcessWagerTransactionResult {
