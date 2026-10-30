@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "start": "bun run src/main.ts",
     "typecheck": "bun check",
     "migrate:up": "bun run src/migrate.ts up",
     "migrate:down": "bun run src/migrate.ts down",
