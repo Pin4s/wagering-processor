@@ -1,6 +1,7 @@
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { Module } from '@nestjs/common';
 import { SqsQueuesService } from './infrastructure/sqs-queues.service';
+import { OutboxPublisher } from './application/outbox-publisher';
 
 @Module({
   providers: [
@@ -12,7 +13,8 @@ import { SqsQueuesService } from './infrastructure/sqs-queues.service';
       }),
     },
     SqsQueuesService,
+    OutboxPublisher,
   ],
-  exports: [SQSClient, SqsQueuesService],
+  exports: [SQSClient, SqsQueuesService, OutboxPublisher],
 })
 export class MessagingModule {}

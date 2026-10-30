@@ -1,8 +1,8 @@
 import { GetQueueUrlCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 
 @Injectable()
-export class SqsQueuesService implements OnModuleDestroy {
+export class SqsQueuesService implements OnApplicationShutdown {
   private readonly urls = new Map<string, string>();
   private readonly transactionsQueue = process.env.SQS_WAGER_TRANSACTIONS_QUEUE ?? 'wager-transactions.fifo';
   private readonly transactionsDlq = process.env.SQS_WAGER_TRANSACTIONS_DLQ ?? 'wager-transactions-dlq.fifo';
@@ -23,11 +23,10 @@ export class SqsQueuesService implements OnModuleDestroy {
   }
 
   async checkReadiness(): Promise<void> {
-    // A prontidão sempre consulta o SQS, mesmo quando a URL já está em cache.
     await this.resolveQueueUrl(this.transactionsQueue);
   }
 
-  onModuleDestroy(): void {
+  onApplicationShutdown(): void {
     this.sqs.destroy();
   }
 

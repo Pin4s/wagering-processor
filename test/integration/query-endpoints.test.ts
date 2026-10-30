@@ -21,6 +21,7 @@ let orm: MikroORM;
 let createWallet: CreateWalletUseCase;
 let processTransaction: ProcessWagerTransactionUseCase;
 let baseUrl: string;
+let previousPublisherEnabled: string | undefined;
 
 interface LedgerPage {
   items: ReturnType<typeof toLedgerEntryView>[];
@@ -28,6 +29,8 @@ interface LedgerPage {
 }
 
 beforeAll(async () => {
+  previousPublisherEnabled = process.env.OUTBOX_PUBLISHER_ENABLED;
+  process.env.OUTBOX_PUBLISHER_ENABLED = 'false';
   app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
   orm = app.get(MikroORM);
   await orm.migrator.up();
@@ -39,6 +42,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  if (previousPublisherEnabled === undefined) {
+    delete process.env.OUTBOX_PUBLISHER_ENABLED;
+  } else {
+    process.env.OUTBOX_PUBLISHER_ENABLED = previousPublisherEnabled;
+  }
 });
 
 beforeEach(async () => {

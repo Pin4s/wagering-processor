@@ -10,8 +10,11 @@ let app: INestApplication;
 let client: SQSClient;
 let queues: SqsQueuesService;
 let baseUrl: string;
+let previousPublisherEnabled: string | undefined;
 
 beforeAll(async () => {
+  previousPublisherEnabled = process.env.OUTBOX_PUBLISHER_ENABLED;
+  process.env.OUTBOX_PUBLISHER_ENABLED = 'false';
   app = await NestFactory.create(AppModule, { logger: false });
   client = app.get(SQSClient);
   queues = app.get(SqsQueuesService);
@@ -21,6 +24,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  if (previousPublisherEnabled === undefined) {
+    delete process.env.OUTBOX_PUBLISHER_ENABLED;
+  } else {
+    process.env.OUTBOX_PUBLISHER_ENABLED = previousPublisherEnabled;
+  }
 });
 
 test('all three configured queues exist in LocalStack and are FIFO', async () => {
