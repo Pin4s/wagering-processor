@@ -153,7 +153,12 @@ function startApplication(port: number): AppProcess {
   const child = Bun.spawn({
     cmd: [process.execPath, 'run', 'src/main.ts'], cwd: projectRoot,
     env: {
-      ...process.env, PORT: String(port), SQS_CONSUMER_ENABLED: 'true',
+      ...process.env,
+      DATABASE_URL: process.env.TEST_DATABASE_URL!,
+      SQS_WAGER_TRANSACTIONS_QUEUE: process.env.SQS_WAGER_TRANSACTIONS_QUEUE!,
+      SQS_WAGER_TRANSACTIONS_DLQ: process.env.SQS_WAGER_TRANSACTIONS_DLQ!,
+      SQS_EVENTS_QUEUE: process.env.SQS_EVENTS_QUEUE!,
+      PORT: String(port), SQS_CONSUMER_ENABLED: 'true',
       OUTBOX_PUBLISHER_ENABLED: 'true', OUTBOX_POLL_INTERVAL_MS: '50',
       PENDING_REFERENCE_WORKER_ENABLED: 'true',
     },

@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -31,7 +32,7 @@ services:
     ports:
       - "4566:4566"
     healthcheck:
-      test: ["CMD", "awslocal", "sqs", "get-queue-url", "--queue-name", "wagering-events.fifo"]
+      test: ["CMD", "awslocal", "sqs", "get-queue-url", "--queue-name", "test-wagering-events.fifo"]
       interval: 5s
       timeout: 5s
       retries: 30

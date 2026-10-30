@@ -1,20 +1,24 @@
 #!/bin/sh
 set -eu
 
-dlq_url=$(awslocal sqs create-queue \
-  --region "$AWS_REGION" \
-  --queue-name "$SQS_WAGER_TRANSACTIONS_DLQ" \
-  --attributes FifoQueue=true \
-  --query QueueUrl --output text)
-printf 'Fila pronta: %s\n' "$SQS_WAGER_TRANSACTIONS_DLQ"
+create_transaction_queues() {
+  transactions_queue=$1
+  transactions_dlq=$2
 
-dlq_arn=$(awslocal sqs get-queue-attributes \
-  --region "$AWS_REGION" \
-  --queue-url "$dlq_url" \
-  --attribute-names QueueArn \
-  --query Attributes.QueueArn --output text)
+  dlq_url=$(awslocal sqs create-queue \
+    --region "$AWS_REGION" \
+    --queue-name "$transactions_dlq" \
+    --attributes FifoQueue=true \
+    --query QueueUrl --output text)
+  printf 'Fila pronta: %s\n' "$transactions_dlq"
 
-attributes=$(cat <<EOF
+  dlq_arn=$(awslocal sqs get-queue-attributes \
+    --region "$AWS_REGION" \
+    --queue-url "$dlq_url" \
+    --attribute-names QueueArn \
+    --query Attributes.QueueArn --output text)
+
+  attributes=$(cat <<EOF
 {
   "FifoQueue": "true",
   "VisibilityTimeout": "30",
@@ -23,16 +27,22 @@ attributes=$(cat <<EOF
 EOF
 )
 
-awslocal sqs create-queue \
-  --region "$AWS_REGION" \
-  --queue-name "$SQS_WAGER_TRANSACTIONS_QUEUE" \
-  --attributes "$attributes" \
-  --query QueueUrl --output text
-printf 'Fila pronta: %s\n' "$SQS_WAGER_TRANSACTIONS_QUEUE"
+  awslocal sqs create-queue \
+    --region "$AWS_REGION" \
+    --queue-name "$transactions_queue" \
+    --attributes "$attributes" \
+    --query QueueUrl --output text
+  printf 'Fila pronta: %s\n' "$transactions_queue"
+}
 
-awslocal sqs create-queue \
-  --region "$AWS_REGION" \
-  --queue-name "$SQS_EVENTS_QUEUE" \
-  --attributes FifoQueue=true \
-  --query QueueUrl --output text
-printf 'Fila pronta: %s\n' "$SQS_EVENTS_QUEUE"
+create_transaction_queues "$SQS_WAGER_TRANSACTIONS_QUEUE" "$SQS_WAGER_TRANSACTIONS_DLQ"
+create_transaction_queues test-wager-transactions.fifo test-wager-transactions-dlq.fifo
+
+for events_queue in "$SQS_EVENTS_QUEUE" test-wagering-events.fifo; do
+  awslocal sqs create-queue \
+    --region "$AWS_REGION" \
+    --queue-name "$events_queue" \
+    --attributes FifoQueue=true \
+    --query QueueUrl --output text
+  printf 'Fila pronta: %s\n' "$events_queue"
+done
