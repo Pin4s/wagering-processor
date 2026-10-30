@@ -1,4 +1,5 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, HttpCode, Inject, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, HttpCode, Inject, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '../../../shared/http/auth.guard';
 import { InvalidMoneyError } from '../../../shared/domain/money';
 import { CreateWalletInput, CreateWalletUseCase, WalletAlreadyExistsError } from '../application/create-wallet.use-case';
 import { isUuid } from '../../../shared/is-uuid';
@@ -16,6 +17,7 @@ interface LedgerQuery {
 }
 
 @Controller('wallets')
+@UseGuards(AuthGuard)
 export class WalletController {
     constructor(
         @Inject(CreateWalletUseCase) private readonly createWallet: CreateWalletUseCase,

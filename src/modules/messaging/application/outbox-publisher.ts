@@ -12,6 +12,7 @@ import {
 import { OutboxMessageEntity } from '../infrastructure/outbox-message.entity';
 import { toOutboxMessageDomain, updateOutboxMessageEntity } from '../infrastructure/outbox-message.mapper';
 import { SqsQueuesService } from '../infrastructure/sqs-queues.service';
+import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
 
 export const OUTBOX_EVENTS_QUEUE_URL = Symbol('OUTBOX_EVENTS_QUEUE_URL');
 
@@ -28,6 +29,7 @@ export class OutboxPublisher implements OnApplicationBootstrap, OnModuleDestroy,
     @Inject(SQSClient) private readonly sqs: SQSClient,
     @Inject(SqsQueuesService) private readonly queues: SqsQueuesService,
     @Optional() @Inject(OUTBOX_EVENTS_QUEUE_URL) private readonly eventsQueueUrl?: string,
+    @Inject(MetricsRegistry) private readonly metrics: MetricsRegistry = new MetricsRegistry(),
   ) {}
 
   async publishBatch(): Promise<string[]> {
@@ -63,6 +65,7 @@ export class OutboxPublisher implements OnApplicationBootstrap, OnModuleDestroy,
             message.markPublished(new Date());
             publishedIds.push(message.id);
           } catch (error) {
+            this.metrics.increment('outbox_publish_failures_total');
             message.scheduleRetry(new Date());
             this.logger.warn({
               message: 'outbox message publication failed',

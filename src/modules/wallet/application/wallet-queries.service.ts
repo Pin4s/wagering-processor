@@ -1,6 +1,7 @@
 import { EntityManager, LockMode, raw, type FilterQuery } from '@mikro-orm/core';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Money } from '../../../shared/domain/money';
+import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
 import { WalletNotFoundError } from '../../wagering/application/process-wager-transaction.use-case';
 import { WalletEntity } from '../infrastructure/wallet.entity';
 import { WalletLedgerEntryEntity } from '../infrastructure/wallet-ledger-entry.entity';
@@ -21,7 +22,10 @@ interface LedgerTotals {
 export class WalletQueriesService {
   private readonly logger = new Logger(WalletQueriesService.name);
 
-  constructor(@Inject(EntityManager) private readonly em: EntityManager) { }
+  constructor(
+    @Inject(EntityManager) private readonly em: EntityManager,
+    @Inject(MetricsRegistry) private readonly metrics: MetricsRegistry = new MetricsRegistry(),
+  ) { }
 
   async getWallet(walletId: string) {
     const wallet = await this.findWallet(this.em.fork(), walletId);
@@ -74,6 +78,7 @@ export class WalletQueriesService {
       const difference = storedBalance.subtract(calculatedBalance);
       const consistent = difference.isZero();
       if (!consistent) {
+        this.metrics.increment('reconciliation_divergences_total');
         this.logger.warn({ message: 'wallet reconciliation divergence', walletId, difference: difference.toJSON() });
       }
       return {

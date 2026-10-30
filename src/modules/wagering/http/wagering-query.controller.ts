@@ -1,8 +1,10 @@
-import { BadRequestException, Controller, Get, Inject, NotFoundException, Param } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '../../../shared/http/auth.guard';
 import { isUuid } from '../../../shared/is-uuid';
 import { TransactionNotFoundError, WagerTransactionQueriesService } from '../application/wager-transaction-queries.service';
 
 @Controller()
+@UseGuards(AuthGuard)
 export class WageringQueryController {
   constructor(@Inject(WagerTransactionQueriesService) private readonly queries: WagerTransactionQueriesService) {}
 

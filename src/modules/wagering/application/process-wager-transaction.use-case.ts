@@ -1,7 +1,8 @@
-import { EntityManager, LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
+import { DeadlockException, EntityManager, LockMode, LockWaitTimeoutException, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Money, MoneyProps } from '../../../shared/domain/money';
 import { newId } from '../../../shared/new-id';
+import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
 import { EventContext, IntegrationEvent } from '../../messaging/domain/integration-event';
 import { InboxMessage } from '../../messaging/domain/inbox-message';
 import { InboxMessageEntity } from '../../messaging/infrastructure/inbox-message.entity';
@@ -64,9 +65,40 @@ export interface ProcessWagerTransactionResult {
 export class ProcessWagerTransactionUseCase {
     private readonly logger = new Logger(ProcessWagerTransactionUseCase.name);
 
-    constructor(@Inject(EntityManager) private readonly em: EntityManager) { }
+    constructor(
+        @Inject(EntityManager) private readonly em: EntityManager,
+        @Inject(MetricsRegistry) private readonly metrics: MetricsRegistry = new MetricsRegistry(),
+    ) { }
 
     async execute(input: ProcessWagerTransactionInput): Promise<ProcessWagerTransactionResult> {
+        const started = performance.now();
+        try {
+            const result = await this.executeTransaction(input);
+            if (!result.idempotentReplay) {
+                let source = 'http';
+                if (input.inbox) {
+                    source = 'sqs';
+                }
+                this.metrics.increment('wager_transactions_total', { status: result.status, kind: input.kind, source });
+            }
+            return result;
+        } catch (error) {
+            let sqlState: unknown;
+            if (error instanceof Error && 'code' in error) {
+                sqlState = error.code;
+            }
+            if (error instanceof DeadlockException || sqlState === '40P01') {
+                this.metrics.increment('lock_errors_total', { type: 'deadlock' });
+            } else if (error instanceof LockWaitTimeoutException || sqlState === '55P03') {
+                this.metrics.increment('lock_errors_total', { type: 'lock_timeout' });
+            }
+            throw error;
+        } finally {
+            this.metrics.observe('wager_processing_duration_seconds', (performance.now() - started) / 1_000);
+        }
+    }
+
+    private async executeTransaction(input: ProcessWagerTransactionInput): Promise<ProcessWagerTransactionResult> {
         if (input.kind === WagerTransactionKind.Opening) {
             throw new InvalidWagerTransactionError('OPENING is internal and cannot be submitted');
         }
@@ -133,11 +165,17 @@ export class ProcessWagerTransactionUseCase {
         payloadHash: string,
         context: EventContext,
     ): Promise<ProcessWagerTransactionResult> {
-        const walletEntity = await em.findOne(
-            WalletEntity,
-            { id: input.walletId },
-            { lockMode: LockMode.PESSIMISTIC_WRITE },
-        );
+        const lockStarted = performance.now();
+        let walletEntity: WalletEntity | null;
+        try {
+            walletEntity = await em.findOne(
+                WalletEntity,
+                { id: input.walletId },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+            );
+        } finally {
+            this.metrics.observe('wallet_lock_wait_seconds', (performance.now() - lockStarted) / 1_000);
+        }
         if (!walletEntity) {
             throw new WalletNotFoundError('wallet not found');
         }
@@ -152,7 +190,7 @@ export class ProcessWagerTransactionUseCase {
                 if (!existing) {
                     throw new IdempotencyConflictError('message already processed with a different Idempotency-Key');
                 }
-                const result = replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance);
+                const result = replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance, this.metrics, 'inbox');
                 this.logger.log({
                     message: 'duplicate message ignored',
                     messageId: input.inbox.messageId,
@@ -172,7 +210,7 @@ export class ProcessWagerTransactionUseCase {
         const existing = await em.findOne(WagerTransactionEntity, { idempotencyKey: input.idempotencyKey });
 
         if (existing) {
-            return replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance);
+            return replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance, this.metrics, 'idempotency');
         }
 
         if (input.playerId !== wallet.playerId || money.currency !== wallet.currency) {
@@ -225,7 +263,7 @@ export class ProcessWagerTransactionUseCase {
         if (existing) {
             const walletEntity = await em.findOneOrFail(WalletEntity, { id: existing.walletId });
             const currentBalance = Money.fromCents(walletEntity.balanceCents, walletEntity.currency);
-            return replay(toWagerTransactionDomain(existing), payloadHash, currentBalance);
+            return replay(toWagerTransactionDomain(existing), payloadHash, currentBalance, this.metrics, 'idempotency');
         }
         throw new IdempotencyConflictError('externalTransactionId already used with a different Idempotency-Key');
     }
@@ -391,10 +429,13 @@ function replay(
     existing: WagerTransaction,
     payloadHash: string,
     currentBalance: Money,
+    metrics: MetricsRegistry,
+    layer: 'idempotency' | 'inbox',
 ): ProcessWagerTransactionResult {
     if (!existing.matchesPayload(payloadHash)) {
         throw new IdempotencyConflictError('same Idempotency-Key with a different payload');
     }
+    metrics.increment('duplicates_detected_total', { layer });
     return toResult(existing, true, currentBalance);
 }
 function toResult(

@@ -9,6 +9,7 @@ import {
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy } from '@nestjs/common';
 import { InvalidMoneyError } from '../../../shared/domain/money';
 import { isTransientInfrastructureError } from '../../../shared/is-transient-infrastructure-error';
+import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
 import {
   InvalidWagerTransactionRequestError,
   isNonEmptyString,
@@ -48,6 +49,7 @@ export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModu
     @Inject(SQSClient) private readonly sqs: SQSClient,
     @Inject(SqsQueuesService) private readonly queues: SqsQueuesService,
     @Inject(ProcessWagerTransactionUseCase) private readonly processTransaction: ProcessWagerTransactionUseCase,
+    @Inject(MetricsRegistry) private readonly metrics: MetricsRegistry = new MetricsRegistry(),
   ) {}
 
   async handle(sqsMessage: Message): Promise<ConsumerDecision> {
@@ -77,6 +79,7 @@ export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModu
         correlationId: envelope.messageId,
       });
       context.transactionId = result.transactionId;
+      this.recordDecision('ack');
       this.logger.log({ message: 'wager message handled', ...context, decision: 'ack' });
       return 'ack';
     } catch (error) {
@@ -96,6 +99,7 @@ export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModu
       } else {
         decision = 'retry';
       }
+      this.recordDecision(decision);
       this.logger.warn({ message: 'wager message handled', ...context, decision, errorName: errorName(error) });
       return decision;
     }
@@ -135,6 +139,13 @@ export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModu
       await this.sqs.send(new DeleteMessageCommand({
         QueueUrl: queueUrl, ReceiptHandle: receiptHandle,
       }), { abortSignal: AbortSignal.timeout(5_000) });
+    }
+  }
+
+  private recordDecision(decision: ConsumerDecision): void {
+    this.metrics.increment('consumer_messages_total', { decision });
+    if (decision === 'retry') {
+      this.metrics.increment('consumer_retries_total');
     }
   }
 

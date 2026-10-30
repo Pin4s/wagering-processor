@@ -12,8 +12,10 @@ import {
   Res,
   ServiceUnavailableException,
   UnprocessableEntityException,
+  UseGuards,
 } from '@nestjs/common';
 import { InvalidMoneyError } from '../../../shared/domain/money';
+import { AuthGuard } from '../../../shared/http/auth.guard';
 import { isTransientInfrastructureError } from '../../../shared/is-transient-infrastructure-error';
 import { newId } from '../../../shared/new-id';
 import {
@@ -35,6 +37,7 @@ interface HttpResponse {
 }
 
 @Controller('wagering/transactions')
+@UseGuards(AuthGuard)
 export class WageringController {
   private readonly logger = new Logger(WageringController.name);
 
