@@ -22,6 +22,7 @@ let createWallet: CreateWalletUseCase;
 let processTransaction: ProcessWagerTransactionUseCase;
 let baseUrl: string;
 let previousPublisherEnabled: string | undefined;
+let previousConsumerEnabled: string | undefined;
 
 interface LedgerPage {
   items: ReturnType<typeof toLedgerEntryView>[];
@@ -31,6 +32,8 @@ interface LedgerPage {
 beforeAll(async () => {
   previousPublisherEnabled = process.env.OUTBOX_PUBLISHER_ENABLED;
   process.env.OUTBOX_PUBLISHER_ENABLED = 'false';
+  previousConsumerEnabled = process.env.SQS_CONSUMER_ENABLED;
+  process.env.SQS_CONSUMER_ENABLED = 'false';
   app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
   orm = app.get(MikroORM);
   await orm.migrator.up();
@@ -42,6 +45,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  if (previousConsumerEnabled === undefined) {
+    delete process.env.SQS_CONSUMER_ENABLED;
+  } else {
+    process.env.SQS_CONSUMER_ENABLED = previousConsumerEnabled;
+  }
   if (previousPublisherEnabled === undefined) {
     delete process.env.OUTBOX_PUBLISHER_ENABLED;
   } else {
@@ -388,4 +396,31 @@ test('health endpoints are public and readiness reflects PostgreSQL failures', a
   } finally {
     execute.mockRestore();
   }
+});
+
+test('shared request parsing preserves HTTP validation responses and header idempotency', async () => {
+  const wallet = await openWalletWithBets(0);
+  const input = bet(wallet.id, wallet.playerId, 'shared-parser');
+  const invalidRequests = [
+    { body: { ...input, providerId: '' }, message: 'providerId is required' },
+    { body: { ...input, playerId: 'invalid' }, message: 'playerId must be a UUID' },
+    { body: { ...input, kind: 'OPENING' }, message: 'kind must be one of BET, WIN, LOSS, REFUND, ROLLBACK' },
+    { body: { ...input, money: { amount: 10, currency: 'BRL' } }, message: 'money must have amount and currency as strings' },
+    { body: { ...input, money: { amount: '1.999', currency: 'BRL' } }, message: 'invalid amount format' },
+  ];
+  for (const example of invalidRequests) {
+    const response = await submit(example.body, input.idempotencyKey);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'INVALID_PAYLOAD', message: example.message });
+  }
+  const missingKey = await fetch(`${baseUrl}/wagering/transactions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  expect(missingKey.status).toBe(400);
+  expect(await missingKey.json()).toEqual({ error: 'MISSING_IDEMPOTENCY_KEY', message: 'Idempotency-Key header is required' });
+  const first = await submit({ ...input, idempotencyKey: 'ignored-body-key' }, input.idempotencyKey);
+  expect(first.status).toBe(200);
+  const replay = await submit(input, input.idempotencyKey);
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toMatchObject({ idempotentReplay: true });
 });

@@ -7,5 +7,6 @@ import { WageringQueryController } from './http/wagering-query.controller';
 @Module({
     controllers: [WageringController, WageringQueryController],
     providers: [ProcessWagerTransactionUseCase, WagerTransactionQueriesService],
+    exports: [ProcessWagerTransactionUseCase],
 })
 export class WageringModule { }
