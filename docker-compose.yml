@@ -30,6 +30,12 @@ services:
       - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
     ports:
       - "4566:4566"
+    healthcheck:
+      test: ["CMD", "awslocal", "sqs", "get-queue-url", "--queue-name", "wagering-events.fifo"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
 volumes:
   pgdata:
