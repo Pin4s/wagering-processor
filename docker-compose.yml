@@ -19,6 +19,15 @@ services:
     environment:
       SERVICES: sqs
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      SQS_WAGER_TRANSACTIONS_QUEUE: ${SQS_WAGER_TRANSACTIONS_QUEUE:-wager-transactions.fifo}
+      SQS_WAGER_TRANSACTIONS_DLQ: ${SQS_WAGER_TRANSACTIONS_DLQ:-wager-transactions-dlq.fifo}
+      SQS_EVENTS_QUEUE: ${SQS_EVENTS_QUEUE:-wagering-events.fifo}
+    volumes:
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
     ports:
       - "4566:4566"
 

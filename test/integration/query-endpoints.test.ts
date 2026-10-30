@@ -371,12 +371,12 @@ test('health endpoints are public and readiness reflects PostgreSQL failures', a
   expect(await live.json()).toEqual({ status: 'ok' });
   const ready = await fetch(`${baseUrl}/health/ready`);
   expect(ready.status).toBe(200);
-  expect(await ready.json()).toEqual({ status: 'ok', checks: { postgres: 'ok' } });
+  expect(await ready.json()).toEqual({ status: 'ok', checks: { postgres: 'ok', sqs: 'ok' } });
   const execute = spyOn(orm.em.getConnection(), 'execute').mockRejectedValue(new Error('postgres unavailable'));
   try {
     const unavailable = await fetch(`${baseUrl}/health/ready`);
     expect(unavailable.status).toBe(503);
-    expect(await unavailable.json()).toEqual({ status: 'unavailable', checks: { postgres: 'down' } });
+    expect(await unavailable.json()).toEqual({ status: 'unavailable', checks: { postgres: 'down', sqs: 'ok' } });
   } finally {
     execute.mockRestore();
   }

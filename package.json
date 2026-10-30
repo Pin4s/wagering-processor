@@ -18,6 +18,7 @@
     "typescript": "^7"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1160.0",
     "@mikro-orm/cli": "^7.2.5",
     "@mikro-orm/core": "^7.2.5",
     "@mikro-orm/decorators": "^7.2.5",
