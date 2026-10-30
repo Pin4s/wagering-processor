@@ -5,7 +5,7 @@ import { WalletLedgerEntryEntity } from '../../src/modules/wallet/infrastructure
 export async function truncateAll(orm: MikroORM): Promise<void> {
   await orm.em
     .getConnection()
-    .execute('truncate table outbox_messages, wallet_ledger_entries, wager_transactions, wallets cascade');
+    .execute('truncate table inbox_messages, outbox_messages, wallet_ledger_entries, wager_transactions, wallets cascade');
 }
 
 export function balanceFromLedger(entries: WalletLedgerEntryEntity[]): bigint {

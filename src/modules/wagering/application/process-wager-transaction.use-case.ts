@@ -3,6 +3,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Money, MoneyProps } from '../../../shared/domain/money';
 import { newId } from '../../../shared/new-id';
 import { EventContext, IntegrationEvent } from '../../messaging/domain/integration-event';
+import { InboxMessage } from '../../messaging/domain/inbox-message';
+import { InboxMessageEntity } from '../../messaging/infrastructure/inbox-message.entity';
+import { toNewInboxMessageEntity } from '../../messaging/infrastructure/inbox-message.mapper';
 import { OutboxMessage } from '../../messaging/domain/outbox-message';
 import {
     WagerTransactionPendingReference,
@@ -31,9 +34,12 @@ export class WalletNotFoundError extends Error { }
 export class WalletMismatchError extends Error { }
 export class IdempotencyConflictError extends Error { }
 
+export const WAGER_TRANSACTIONS_CONSUMER_NAME = 'wager-transactions-consumer';
+
 export interface ProcessWagerTransactionInput {
     correlationId?: string;
     causationId?: string;
+    inbox?: { consumerName: string; messageId: string };
     idempotencyKey: string;
     providerId: string;
     externalTransactionId: string;
@@ -136,6 +142,33 @@ export class ProcessWagerTransactionUseCase {
             throw new WalletNotFoundError('wallet not found');
         }
         const wallet = toWalletDomain(walletEntity);
+        if (input.inbox) {
+            const existingInbox = await em.findOne(InboxMessageEntity, {
+                consumerName: input.inbox.consumerName,
+                messageId: input.inbox.messageId,
+            });
+            if (existingInbox) {
+                const existing = await em.findOne(WagerTransactionEntity, { idempotencyKey: input.idempotencyKey });
+                if (!existing) {
+                    throw new IdempotencyConflictError('message already processed with a different Idempotency-Key');
+                }
+                const result = replay(toWagerTransactionDomain(existing), payloadHash, wallet.balance);
+                this.logger.log({
+                    message: 'duplicate message ignored',
+                    messageId: input.inbox.messageId,
+                    consumerName: input.inbox.consumerName,
+                    correlationId: context.correlationId,
+                });
+                return result;
+            }
+            const inboxMessage = InboxMessage.receive({
+                messageId: input.inbox.messageId,
+                consumerName: input.inbox.consumerName,
+                payloadHash,
+            });
+            inboxMessage.markProcessed(new Date());
+            em.persist(toNewInboxMessageEntity(inboxMessage));
+        }
         const existing = await em.findOne(WagerTransactionEntity, { idempotencyKey: input.idempotencyKey });
 
         if (existing) {
