@@ -8,6 +8,7 @@ import {
 } from '@aws-sdk/client-sqs';
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy } from '@nestjs/common';
 import { InvalidMoneyError } from '../../../shared/domain/money';
+import { BackgroundLoopDiagnostics } from '../../../shared/background-loop-diagnostics';
 import { isTransientInfrastructureError } from '../../../shared/is-transient-infrastructure-error';
 import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
 import {
@@ -38,6 +39,7 @@ interface MessageContext {
 @Injectable()
 export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModuleDestroy, OnApplicationShutdown {
   private readonly logger = new Logger(WagerTransactionsConsumer.name);
+  private readonly diagnostics = new BackgroundLoopDiagnostics(this.logger, 'consumer');
   private stopping = false;
   private activePoll?: Promise<number>;
   private loopTask?: Promise<void>;
@@ -244,29 +246,29 @@ export class WagerTransactionsConsumer implements OnApplicationBootstrap, OnModu
     while (!this.stopping) {
       try {
         const count = await this.pollOnce();
+        if (!this.stopping) {
+          this.diagnostics.succeeded();
+        }
         if (count === 0 && !this.stopping) {
-          await this.pause();
+          await this.pause(100);
         }
       } catch (error) {
-        this.logger.error({
-          message: 'wager consumer poll failed', messageId: 'unknown', correlationId: 'unknown',
-          decision: 'retry', errorName: errorName(error),
-        });
         if (!this.stopping) {
-          await this.pause();
+          const nextRetryInMs = this.diagnostics.failed(error);
+          await this.pause(nextRetryInMs);
         }
       }
     }
   }
 
-  private pause(): Promise<void> {
+  private pause(delayMs: number): Promise<void> {
     return new Promise((resolve) => {
       this.wakeIdle = resolve;
       this.idleTimer = setTimeout(() => {
         this.idleTimer = undefined;
         this.wakeIdle = undefined;
         resolve();
-      }, 100);
+      }, delayMs);
     });
   }
 }

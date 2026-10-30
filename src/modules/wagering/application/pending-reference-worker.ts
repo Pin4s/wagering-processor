@@ -1,6 +1,7 @@
 import { EntityManager, LockMode } from '@mikro-orm/core';
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, Optional } from '@nestjs/common';
 import { MetricsRegistry } from '../../../shared/metrics/metrics.registry';
+import { BackgroundLoopDiagnostics } from '../../../shared/background-loop-diagnostics';
 import { newId } from '../../../shared/new-id';
 import { OutboxMessage } from '../../messaging/domain/outbox-message';
 import { toNewOutboxMessageEntity } from '../../messaging/infrastructure/outbox-message.mapper';
@@ -23,10 +24,12 @@ export interface PendingReferenceWorkerOptions {
 @Injectable()
 export class PendingReferenceWorker implements OnApplicationBootstrap, OnModuleDestroy, OnApplicationShutdown {
   private readonly logger = new Logger(PendingReferenceWorker.name);
+  private readonly diagnostics = new BackgroundLoopDiagnostics(this.logger, 'pending-reference-worker');
   private readonly maxAttempts: number;
   private readonly retryBaseSeconds: number;
   private readonly pollIntervalMs: number;
-  private timer?: ReturnType<typeof setInterval>;
+  private timer?: ReturnType<typeof setTimeout>;
+  private loopStarted = false;
   private running = false;
   private stopping = false;
   private activeBatch?: Promise<number>;
@@ -108,11 +111,11 @@ export class PendingReferenceWorker implements OnApplicationBootstrap, OnModuleD
   }
 
   onApplicationBootstrap(): void {
-    if (process.env.PENDING_REFERENCE_WORKER_ENABLED === 'false' || this.timer) {
+    if (process.env.PENDING_REFERENCE_WORKER_ENABLED === 'false' || this.loopStarted) {
       return;
     }
     this.stopping = false;
-    this.timer = setInterval(() => { void this.poll(); }, this.pollIntervalMs);
+    this.loopStarted = true;
     void this.poll();
   }
 
@@ -123,28 +126,45 @@ export class PendingReferenceWorker implements OnApplicationBootstrap, OnModuleD
   async onApplicationShutdown(): Promise<void> {
     this.stopping = true;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = undefined;
     }
     try {
       await this.activeBatch;
     } catch {
     }
+    this.loopStarted = false;
   }
 
   private async poll(): Promise<void> {
     if (this.stopping || this.running) {
+      if (!this.stopping) {
+        this.scheduleNext(this.pollIntervalMs);
+      }
       return;
     }
+    let nextDelay = this.pollIntervalMs;
     try {
       await this.processDue();
-    } catch (error) {
-      let errorName = 'UnknownError';
-      if (error instanceof Error) {
-        errorName = error.constructor.name;
+      if (!this.stopping) {
+        this.diagnostics.succeeded();
       }
-      this.logger.error({ message: 'pending reference batch failed', errorName });
+    } catch (error) {
+      if (!this.stopping) {
+        nextDelay = this.diagnostics.failed(error);
+      }
+    } finally {
+      if (!this.stopping) {
+        this.scheduleNext(nextDelay);
+      }
     }
+  }
+
+  private scheduleNext(delayMs: number): void {
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.poll();
+    }, delayMs);
   }
 }
 
