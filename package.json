@@ -9,7 +9,8 @@
     "migrate:down": "bun run src/migrate.ts down",
     "migrate:create": "bun run src/migrate.ts create",
     "test:unit": "bun test src",
-    "test:int": "bun test test/integration"
+    "test:int": "bun test test/integration",
+    "test:e2e": "bun test test/e2e --timeout 120000"
   },
   "devDependencies": {
     "@types/bun": "latest"
