@@ -296,7 +296,7 @@ function applyLoss(wallet: Wallet, transaction: WagerTransaction): undefined {
     return undefined;
 }
 
-async function applyReversal(
+export async function applyReversal(
     em: EntityManager,
     wallet: Wallet,
     transaction: WagerTransaction,
@@ -349,7 +349,7 @@ async function applyReversal(
     return entry;
 }
 
-function eventsFor(
+export function eventsFor(
     transaction: WagerTransaction,
     wallet: Wallet,
     entry: WalletLedgerEntry | undefined,

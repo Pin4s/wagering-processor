@@ -19,7 +19,7 @@ interface CounterDefinition {
 const COUNTERS = new Map<CounterName, CounterDefinition>([
   ['wager_transactions_total', {
     help: 'Transacoes novas por status, tipo e origem.',
-    labels: { status: Object.values(WagerTransactionStatus), kind: Object.values(WagerTransactionKind), source: ['http', 'sqs'] },
+    labels: { status: Object.values(WagerTransactionStatus), kind: Object.values(WagerTransactionKind), source: ['http', 'sqs', 'worker'] },
   }],
   ['duplicates_detected_total', { help: 'Replays detectados por camada.', labels: { layer: ['idempotency', 'inbox'] } }],
   ['lock_errors_total', { help: 'Erros de lock por tipo.', labels: { type: ['deadlock', 'lock_timeout'] } }],

@@ -23,6 +23,7 @@ let processTransaction: ProcessWagerTransactionUseCase;
 let baseUrl: string;
 let previousPublisherEnabled: string | undefined;
 let previousConsumerEnabled: string | undefined;
+let previousWorkerEnabled: string | undefined;
 
 interface LedgerPage {
   items: ReturnType<typeof toLedgerEntryView>[];
@@ -34,6 +35,8 @@ beforeAll(async () => {
   process.env.OUTBOX_PUBLISHER_ENABLED = 'false';
   previousConsumerEnabled = process.env.SQS_CONSUMER_ENABLED;
   process.env.SQS_CONSUMER_ENABLED = 'false';
+  previousWorkerEnabled = process.env.PENDING_REFERENCE_WORKER_ENABLED;
+  process.env.PENDING_REFERENCE_WORKER_ENABLED = 'false';
   app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
   orm = app.get(MikroORM);
   await orm.migrator.up();
@@ -45,6 +48,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  if (previousWorkerEnabled === undefined) {
+    delete process.env.PENDING_REFERENCE_WORKER_ENABLED;
+  } else {
+    process.env.PENDING_REFERENCE_WORKER_ENABLED = previousWorkerEnabled;
+  }
   if (previousConsumerEnabled === undefined) {
     delete process.env.SQS_CONSUMER_ENABLED;
   } else {

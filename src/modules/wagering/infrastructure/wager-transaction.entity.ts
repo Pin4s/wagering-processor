@@ -10,6 +10,10 @@ import { WagerTransactionKind, WagerTransactionStatus } from '../domain/wager-tr
     name: 'wager_transactions_one_reversal_per_reference_uq',
     expression: `create unique index "wager_transactions_one_reversal_per_reference_uq" on "wager_transactions" ("reference_transaction_id") where kind in ('REFUND', 'ROLLBACK')`,
 })
+@Index({
+    name: 'wager_transactions_pending_reference_idx',
+    expression: `create index "wager_transactions_pending_reference_idx" on "wager_transactions" ("next_reference_check_at") where status = 'PENDING_REFERENCE'`,
+})
 @Check({ name: 'wager_transactions_amount_non_negative', expression: 'amount_cents >= 0' })
 export class WagerTransactionEntity {
     @PrimaryKey({ type: 'uuid' })
@@ -60,6 +64,12 @@ export class WagerTransactionEntity {
 
     @Enum({ items: () => WagerTransactionStatus })
     status!: WagerTransactionStatus;
+
+    @Property({ type: 'integer', default: 0 })
+    referenceAttempts = 0;
+
+    @Property({ type: 'timestamptz', nullable: true })
+    nextReferenceCheckAt?: Date;
 
     @Enum({ items: () => FailureCode, nullable: true })
     failureCode?: FailureCode;

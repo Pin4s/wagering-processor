@@ -31,11 +31,12 @@ let dlq: string;
 const previousEnv = new Map<string, string | undefined>();
 
 beforeAll(async () => {
-  for (const name of ['OUTBOX_PUBLISHER_ENABLED', 'SQS_CONSUMER_ENABLED', 'CONSUMER_RETRY_BASE_SECONDS']) {
+  for (const name of ['OUTBOX_PUBLISHER_ENABLED', 'SQS_CONSUMER_ENABLED', 'CONSUMER_RETRY_BASE_SECONDS', 'PENDING_REFERENCE_WORKER_ENABLED']) {
     previousEnv.set(name, process.env[name]);
   }
   process.env.OUTBOX_PUBLISHER_ENABLED = 'false';
   process.env.SQS_CONSUMER_ENABLED = 'false';
+  process.env.PENDING_REFERENCE_WORKER_ENABLED = 'false';
   process.env.CONSUMER_RETRY_BASE_SECONDS = '0';
   app = await NestFactory.create(AppModule, { logger: false });
   orm = app.get(MikroORM);
